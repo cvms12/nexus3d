@@ -8,6 +8,8 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Three.js for Amazing 3D Entry Graphics -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- PeerJS for Cross-Device / Cross-Browser Real WebRTC Signaling -->
+    <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
     <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
     <!-- Google Fonts: Inter & JetBrains Mono -->
@@ -576,6 +578,9 @@
             remoteStream: null,
             peerConnection: null,
             signalingChannel: null,
+            peerInstance: null,
+            dataConn: null,
+            mediaCall: null,
             isMicOn: true,
             isCamOn: true,
             isSharingScreen: false,
@@ -1212,16 +1217,151 @@
         // ---------------------------------------------------------------------
         // 6. ENTERING CLASSROOM & WEBRTC PEER-TO-PEER ENGINE
         // ---------------------------------------------------------------------
+        function getHostPeerId(roomId) {
+            const cleanRoom = roomId.toLowerCase().replace(/[^a-z0-9_-]/g, '-');
+            return `nexuslearn-v3-host-${cleanRoom}`;
+        }
+
+        function createSilentDummyStream() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 640;
+            canvas.height = 360;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#0f172a';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = '#818cf8';
+            ctx.font = 'bold 24px Inter, sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('Audio / Whiteboard Mode', canvas.width / 2, canvas.height / 2);
+            const stream = canvas.captureStream(10);
+            try {
+                const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                const dst = audioCtx.createMediaStreamDestination();
+                const track = dst.stream.getAudioTracks()[0];
+                if (track) stream.addTrack(track);
+            } catch (e) {}
+            return stream;
+        }
+
+        function sendRoomMessage(payload) {
+            if (state.dataConn && state.dataConn.open) {
+                try { state.dataConn.send(payload); } catch (e) {}
+            }
+            if (state.signalingChannel) {
+                try { state.signalingChannel.postMessage(payload); } catch (e) {}
+            }
+        }
+
+        function attachRemoteMediaStream(stream, remoteName) {
+            if (!stream) return;
+            state.remoteStream = stream;
+            const remoteVid = document.getElementById('remote-video');
+            remoteVid.srcObject = stream;
+            remoteVid.classList.remove('hidden');
+            document.getElementById('remote-placeholder').classList.add('hidden');
+            document.getElementById('remote-name-badge').classList.remove('hidden');
+            if (remoteName) {
+                document.getElementById('remote-name-tag').textContent = remoteName;
+            }
+        }
+
+        function setupDataConnection(conn) {
+            state.dataConn = conn;
+            conn.on('open', () => {
+                conn.send({
+                    type: 'hello',
+                    sender: state.userName,
+                    role: state.role
+                });
+                if (state.role === 'teacher') {
+                    syncPasscodesToPeers();
+                }
+            });
+
+            conn.on('data', (msg) => {
+                handleIncomingRoomEvent(msg);
+            });
+
+            conn.on('close', () => {
+                document.getElementById('remote-status-text').textContent = 'Participant left the room';
+                document.getElementById('peer-count-badge').textContent = '1 Online';
+                document.getElementById('remote-video').classList.add('hidden');
+                document.getElementById('remote-placeholder').classList.remove('hidden');
+                document.getElementById('remote-name-badge').classList.add('hidden');
+                showToast('Participant disconnected from room.', 'warning');
+            });
+        }
+
+        function handleIncomingRoomEvent(msg) {
+            if (!msg || msg.sender === state.userName) return;
+
+            switch (msg.type) {
+                case 'hello':
+                case 'join':
+                    showToast(`${msg.sender} (${msg.role}) is in the classroom with you!`, 'success');
+                    document.getElementById('remote-status-text').textContent = `${msg.sender} connected`;
+                    document.getElementById('remote-name-tag').textContent = msg.sender;
+                    document.getElementById('peer-count-badge').textContent = '2 Online';
+                    appendSystemChat(`${msg.sender} joined the live session.`);
+                    if (state.role === 'teacher') {
+                        syncPasscodesToPeers();
+                        if (state.dataConn && state.dataConn.open && msg.type === 'hello') {
+                            state.dataConn.send({
+                                type: 'hello-ack',
+                                sender: state.userName,
+                                role: state.role
+                            });
+                        }
+                    }
+                    break;
+
+                case 'hello-ack':
+                    document.getElementById('remote-status-text').textContent = `${msg.sender} connected`;
+                    document.getElementById('remote-name-tag').textContent = msg.sender;
+                    document.getElementById('peer-count-badge').textContent = '2 Online';
+                    appendSystemChat(`Connected to ${msg.sender}'s classroom.`);
+                    break;
+
+                case 'chat':
+                    appendChatBubble(msg.sender, msg.text, false);
+                    break;
+
+                case 'wb-draw':
+                    drawRemoteAction(msg.action);
+                    break;
+
+                case 'wb-clear':
+                    clearWhiteboard(false);
+                    break;
+
+                case 'sync-keys':
+                    state.studentPasswords = msg.keys;
+                    persistStudentPasswords();
+                    renderStudentPasswords();
+                    break;
+
+                case 'verify-pass':
+                    if (state.role === 'teacher' && state.signalingChannel) {
+                        const isValid = state.studentPasswords.some(s => String(s.pass).trim() === String(msg.pass).trim());
+                        state.signalingChannel.postMessage({
+                            type: 'verify-pass-result',
+                            reqId: msg.reqId,
+                            valid: isValid,
+                            keys: state.studentPasswords
+                        });
+                    }
+                    break;
+            }
+        }
+
         function verifyPasscodeWithLiveHost(roomId, passInput) {
             return new Promise((resolve) => {
-                // First check local list
                 const localMatch = state.studentPasswords.find(s => String(s.pass).trim() === passInput);
                 if (localMatch) {
                     resolve({ valid: true, student: localMatch });
                     return;
                 }
 
-                // Also check latest localStorage for this room
                 try {
                     const stored = JSON.parse(localStorage.getItem(`nexuslearn_keys_${roomId}`) || '[]');
                     const storedMatch = stored.find(s => String(s.pass).trim() === passInput);
@@ -1232,7 +1372,6 @@
                     }
                 } catch (e) {}
 
-                // Query live teacher session over BroadcastChannel in case teacher added the key live
                 const tempChannel = new BroadcastChannel(`nexuslearn_room_${roomId}`);
                 const reqId = Date.now() + '_' + Math.random();
                 const timeout = setTimeout(() => {
@@ -1332,142 +1471,111 @@
         }
 
         function initWebRTCSignaling() {
-            // BroadcastChannel enables instant zero-server WebRTC signaling & whiteboard sync across tabs/windows
+            // Same-device fast BroadcastChannel fallback
             state.signalingChannel = new BroadcastChannel(`nexuslearn_room_${state.roomId}`);
-
-            state.signalingChannel.onmessage = async (event) => {
-                const msg = event.data;
-                if (!msg || msg.sender === state.userName) return;
-
-                switch (msg.type) {
-                    case 'join':
-                        showToast(`${msg.sender} (${msg.role}) joined the classroom!`, 'success');
-                        document.getElementById('remote-status-text').textContent = `${msg.sender} connected`;
-                        document.getElementById('peer-count-badge').textContent = '2 Online';
-                        appendSystemChat(`${msg.sender} joined the session.`);
-                        syncPasscodesToPeers();
-                        await createAndSendOffer(msg.sender);
-                        break;
-
-                    case 'offer':
-                        document.getElementById('remote-name-tag').textContent = msg.sender;
-                        document.getElementById('peer-count-badge').textContent = '2 Online';
-                        await handleReceiveOffer(msg.offer, msg.sender);
-                        break;
-
-                    case 'answer':
-                        if (state.peerConnection) {
-                            await state.peerConnection.setRemoteDescription(new RTCSessionDescription(msg.answer));
-                        }
-                        break;
-
-                    case 'candidate':
-                        if (state.peerConnection && msg.candidate) {
-                            try {
-                                await state.peerConnection.addIceCandidate(new RTCIceCandidate(msg.candidate));
-                            } catch (e) {}
-                        }
-                        break;
-
-                    case 'chat':
-                        appendChatBubble(msg.sender, msg.text, false);
-                        break;
-
-                    case 'wb-draw':
-                        drawRemoteAction(msg.action);
-                        break;
-
-                    case 'wb-clear':
-                        clearWhiteboard(false);
-                        break;
-
-                    case 'sync-keys':
-                        state.studentPasswords = msg.keys;
-                        persistStudentPasswords();
-                        renderStudentPasswords();
-                        break;
-
-                    case 'verify-pass':
-                        if (state.role === 'teacher') {
-                            const isValid = state.studentPasswords.some(s => String(s.pass).trim() === String(msg.pass).trim());
-                            state.signalingChannel.postMessage({
-                                type: 'verify-pass-result',
-                                reqId: msg.reqId,
-                                valid: isValid,
-                                keys: state.studentPasswords
-                            });
-                        }
-                        break;
-                }
+            state.signalingChannel.onmessage = (event) => {
+                handleIncomingRoomEvent(event.data);
             };
 
-            // Announce presence to room
-            state.signalingChannel.postMessage({
-                type: 'join',
-                sender: state.userName,
-                role: state.role
-            });
-        }
+            const hostPeerId = getHostPeerId(state.roomId);
+            const streamForCall = state.localStream || createSilentDummyStream();
 
-        function createPeerConnection(remoteName) {
-            const pc = new RTCPeerConnection({
-                iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
-            });
-
-            if (state.localStream) {
-                state.localStream.getTracks().forEach(track => pc.addTrack(track, state.localStream));
+            if (typeof Peer === 'undefined') {
+                state.signalingChannel.postMessage({ type: 'join', sender: state.userName, role: state.role });
+                return;
             }
 
-            pc.onicecandidate = (event) => {
-                if (event.candidate) {
-                    state.signalingChannel.postMessage({
-                        type: 'candidate',
-                        sender: state.userName,
-                        candidate: event.candidate.toJSON()
-                    });
+            const peerConfig = {
+                config: {
+                    iceServers: [
+                        { urls: 'stun:stun.l.google.com:19302' },
+                        { urls: 'stun:stun1.l.google.com:19302' }
+                    ]
                 }
             };
 
-            pc.ontrack = (event) => {
-                state.remoteStream = event.streams[0];
-                const remoteVid = document.getElementById('remote-video');
-                remoteVid.srcObject = state.remoteStream;
-                remoteVid.classList.remove('hidden');
-                document.getElementById('remote-placeholder').classList.add('hidden');
-                document.getElementById('remote-name-badge').classList.remove('hidden');
-                document.getElementById('remote-name-tag').textContent = remoteName || 'Participant';
-            };
+            if (state.role === 'teacher') {
+                // Teacher claims the deterministic room Host ID so any student with the room link joins the exact same room
+                const peer = new Peer(hostPeerId, peerConfig);
+                state.peerInstance = peer;
 
-            state.peerConnection = pc;
-            return pc;
-        }
+                peer.on('open', () => {
+                    document.getElementById('remote-status-text').textContent = 'Room live — waiting for student...';
+                });
 
-        async function createAndSendOffer(remoteName) {
-            const pc = createPeerConnection(remoteName);
-            const offer = await pc.createOffer();
-            await pc.setLocalDescription(offer);
-            state.signalingChannel.postMessage({
-                type: 'offer',
-                sender: state.userName,
-                offer: { type: offer.type, sdp: offer.sdp }
-            });
-        }
+                peer.on('connection', (conn) => {
+                    setupDataConnection(conn);
+                });
 
-        async function handleReceiveOffer(offer, remoteName) {
-            const pc = createPeerConnection(remoteName);
-            await pc.setRemoteDescription(new RTCSessionDescription(offer));
-            const answer = await pc.createAnswer();
-            await pc.setLocalDescription(answer);
-            state.signalingChannel.postMessage({
-                type: 'answer',
-                sender: state.userName,
-                answer: { type: answer.type, sdp: answer.sdp }
-            });
+                peer.on('call', (call) => {
+                    state.mediaCall = call;
+                    call.answer(streamForCall);
+                    call.on('stream', (remoteStream) => {
+                        attachRemoteMediaStream(remoteStream);
+                    });
+                });
+
+                peer.on('error', (err) => {
+                    console.warn('Teacher PeerJS notice:', err.type);
+                    if (err.type === 'unavailable-id') {
+                        showToast('Another teacher tab is already hosting this room ID.', 'warning');
+                    }
+                });
+            } else {
+                // Student connects directly to the Teacher's deterministic room Host ID
+                const peer = new Peer(peerConfig);
+                state.peerInstance = peer;
+
+                peer.on('open', () => {
+                    document.getElementById('remote-status-text').textContent = 'Connecting to teacher...';
+                    const conn = peer.connect(hostPeerId, { reliable: true });
+                    setupDataConnection(conn);
+
+                    const call = peer.call(hostPeerId, streamForCall);
+                    state.mediaCall = call;
+                    if (call) {
+                        call.on('stream', (remoteStream) => {
+                            attachRemoteMediaStream(remoteStream);
+                        });
+                    }
+                });
+
+                peer.on('connection', (conn) => {
+                    setupDataConnection(conn);
+                });
+
+                peer.on('call', (call) => {
+                    state.mediaCall = call;
+                    call.answer(streamForCall);
+                    call.on('stream', (remoteStream) => {
+                        attachRemoteMediaStream(remoteStream);
+                    });
+                });
+
+                peer.on('error', (err) => {
+                    console.warn('Student PeerJS notice:', err.type);
+                    if (err.type === 'peer-unavailable') {
+                        document.getElementById('remote-status-text').textContent = 'Waiting for teacher to start room...';
+                        showToast('Teacher has not entered this room yet — retrying automatically...', 'info');
+                        setTimeout(() => {
+                            if (state.peerInstance && !state.peerInstance.destroyed && (!state.dataConn || !state.dataConn.open)) {
+                                const retryConn = state.peerInstance.connect(hostPeerId, { reliable: true });
+                                setupDataConnection(retryConn);
+                                const retryCall = state.peerInstance.call(hostPeerId, streamForCall);
+                                if (retryCall) {
+                                    state.mediaCall = retryCall;
+                                    retryCall.on('stream', (rs) => attachRemoteMediaStream(rs));
+                                }
+                            }
+                        }, 3000);
+                    }
+                });
+            }
         }
 
         function syncPasscodesToPeers() {
-            if (state.signalingChannel && state.role === 'teacher') {
-                state.signalingChannel.postMessage({
+            if (state.role === 'teacher') {
+                sendRoomMessage({
                     type: 'sync-keys',
                     sender: state.userName,
                     keys: state.studentPasswords
@@ -1508,8 +1616,8 @@
                     document.getElementById('local-video').srcObject = state.screenStream;
                     document.getElementById('local-video').classList.remove('-scale-x-100');
 
-                    if (state.peerConnection) {
-                        const sender = state.peerConnection.getSenders().find(s => s.track && s.track.kind === 'video');
+                    if (state.mediaCall && state.mediaCall.peerConnection) {
+                        const sender = state.mediaCall.peerConnection.getSenders().find(s => s.track && s.track.kind === 'video');
                         if (sender) sender.replaceTrack(screenTrack);
                     }
 
@@ -1531,9 +1639,9 @@
             if (state.localStream) {
                 document.getElementById('local-video').srcObject = state.localStream;
                 document.getElementById('local-video').classList.add('-scale-x-100');
-                if (state.peerConnection) {
+                if (state.mediaCall && state.mediaCall.peerConnection) {
                     const camTrack = state.localStream.getVideoTracks()[0];
-                    const sender = state.peerConnection.getSenders().find(s => s.track && s.track.kind === 'video');
+                    const sender = state.mediaCall.peerConnection.getSenders().find(s => s.track && s.track.kind === 'video');
                     if (sender && camTrack) sender.replaceTrack(camTrack);
                 }
             }
@@ -1544,7 +1652,9 @@
             stop720pRecording();
             if (state.localStream) state.localStream.getTracks().forEach(t => t.stop());
             if (state.screenStream) state.screenStream.getTracks().forEach(t => t.stop());
-            if (state.peerConnection) state.peerConnection.close();
+            if (state.mediaCall) state.mediaCall.close();
+            if (state.dataConn) state.dataConn.close();
+            if (state.peerInstance) state.peerInstance.destroy();
             if (state.signalingChannel) state.signalingChannel.close();
 
             document.getElementById('classroom-screen').classList.add('hidden');
@@ -1562,13 +1672,11 @@
             if (!text) return;
 
             appendChatBubble(state.userName, text, true);
-            if (state.signalingChannel) {
-                state.signalingChannel.postMessage({
-                    type: 'chat',
-                    sender: state.userName,
-                    text
-                });
-            }
+            sendRoomMessage({
+                type: 'chat',
+                sender: state.userName,
+                text
+            });
             input.value = '';
         }
 
@@ -1838,13 +1946,11 @@
         }
 
         function broadcastBoardAction(action) {
-            if (state.signalingChannel) {
-                state.signalingChannel.postMessage({
-                    type: 'wb-draw',
-                    sender: state.userName,
-                    action
-                });
-            }
+            sendRoomMessage({
+                type: 'wb-draw',
+                sender: state.userName,
+                action
+            });
         }
 
         function drawRemoteAction(action) {
@@ -1854,8 +1960,8 @@
         function clearWhiteboard(broadcast = false) {
             if (!wbCtx) return;
             wbCtx.clearRect(0, 0, wbCanvas.width, wbCanvas.height);
-            if (broadcast && state.signalingChannel) {
-                state.signalingChannel.postMessage({
+            if (broadcast) {
+                sendRoomMessage({
                     type: 'wb-clear',
                     sender: state.userName
                 });
