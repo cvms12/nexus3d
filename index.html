@@ -293,7 +293,7 @@
                 </div>
 
                 <!-- 720p Auto-Recording Folder Selection -->
-                <div class="bg-gradient-to-r from-slate-900/90 to-indigo-950/40 border border-indigo-500/30 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div id="lobby-recording-section" class="bg-gradient-to-r from-slate-900/90 to-indigo-950/40 border border-indigo-500/30 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                     <div class="flex items-start gap-3">
                         <div class="p-2.5 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-400 mt-0.5">
                             <i data-lucide="disc" class="w-5 h-5"></i>
@@ -607,16 +607,45 @@
             const params = new URLSearchParams(window.location.search);
             const roomParam = params.get('room');
             const roleParam = params.get('role');
+            const keysParam = params.get('keys');
+
             if (roomParam) {
                 document.getElementById('input-room').value = roomParam;
                 state.roomId = roomParam;
             }
+
+            // Load persisted keys for this room from localStorage
+            const storedKeys = localStorage.getItem(`nexuslearn_keys_${state.roomId}`);
+            if (storedKeys) {
+                try {
+                    const parsed = JSON.parse(storedKeys);
+                    if (Array.isArray(parsed) && parsed.length > 0) {
+                        state.studentPasswords = parsed;
+                    }
+                } catch (e) {}
+            }
+
+            // Also merge any keys encoded inside the reusable invite link
+            if (keysParam) {
+                try {
+                    const decoded = JSON.parse(decodeURIComponent(escape(atob(keysParam))));
+                    if (Array.isArray(decoded) && decoded.length > 0) {
+                        state.studentPasswords = decoded;
+                    }
+                } catch (e) {}
+            }
+
             if (roleParam === 'student') {
                 switchRole('student');
             }
             renderStudentPasswords();
             initThreeJSBackground();
         });
+
+        function persistStudentPasswords() {
+            const roomVal = (document.getElementById('input-room')?.value.trim() || state.roomId || 'math-101-studio');
+            localStorage.setItem(`nexuslearn_keys_${roomVal}`, JSON.stringify(state.studentPasswords));
+        }
 
         // ---------------------------------------------------------------------
         // 1B. LIGHT / DARK THEME CONTROLLER
@@ -628,7 +657,6 @@
 
         function applyTheme(theme, notify = false) {
             state.theme = theme;
-            localStorage.setItem('nexuslearn_theme', theme);
             const htmlEl = document.documentElement;
             const lobbyTitle = document.getElementById('lobby-title');
             const primarySwatch = document.getElementById('swatch-primary');
@@ -636,165 +664,196 @@
             if (theme === 'light') {
                 htmlEl.classList.add('light-theme');
                 if (lobbyTitle) {
-                    lobbyTitle.className = 'text-2xl sm:text-3xl font-extrabold tracking-tight bg-gradient-to-r from-indigo-950 via-indigo-700 to-purple-700 bg-clip-text text-transparent';
+                    lobbyTitle.classList.remove('from-white', 'via-indigo-200', 'to-indigo-400');
+                    lobbyTitle.classList.add('from-indigo-950', 'via-indigo-700', 'to-purple-700');
                 }
                 if (primarySwatch) {
-                    primarySwatch.className = 'w-5 h-5 rounded-full bg-slate-900 border-2 border-indigo-500 shrink-0 color-btn';
+                    primarySwatch.style.backgroundColor = '#0f172a';
                     primarySwatch.dataset.color = '#0f172a';
+                    primarySwatch.setAttribute('onclick', "setColor('#0f172a')");
+                    if (state.color.toLowerCase() === '#ffffff') {
+                        state.color = '#0f172a';
+                    }
                 }
-                if (state.color === '#ffffff') setColor('#0f172a');
-                if (threeScene && threeScene.fog) {
-                    threeScene.fog.color.setHex(0xf1f5f9);
+                if (threeScene && threeScene.scene && threeScene.scene.fog) {
+                    threeScene.scene.fog.color.setHex(0xf1f5f9);
                 }
             } else {
                 htmlEl.classList.remove('light-theme');
                 if (lobbyTitle) {
-                    lobbyTitle.className = 'text-2xl sm:text-3xl font-extrabold tracking-tight bg-gradient-to-r from-white via-indigo-200 to-indigo-400 bg-clip-text text-transparent';
+                    lobbyTitle.classList.remove('from-indigo-950', 'via-indigo-700', 'to-purple-700');
+                    lobbyTitle.classList.add('from-white', 'via-indigo-200', 'to-indigo-400');
                 }
                 if (primarySwatch) {
-                    primarySwatch.className = 'w-5 h-5 rounded-full bg-white border-2 border-indigo-400 shrink-0 color-btn';
+                    primarySwatch.style.backgroundColor = '#ffffff';
                     primarySwatch.dataset.color = '#ffffff';
+                    primarySwatch.setAttribute('onclick', "setColor('#ffffff')");
+                    if (state.color.toLowerCase() === '#0f172a') {
+                        state.color = '#ffffff';
+                    }
                 }
-                if (state.color === '#0f172a') setColor('#ffffff');
-                if (threeScene && threeScene.fog) {
-                    threeScene.fog.color.setHex(0x090d16);
+                if (threeScene && threeScene.scene && threeScene.scene.fog) {
+                    threeScene.scene.fog.color.setHex(0x090d16);
                 }
             }
 
             document.querySelectorAll('.theme-toggle-icon').forEach(icon => {
                 icon.setAttribute('data-lucide', theme === 'dark' ? 'sun' : 'moon');
-                icon.className = theme === 'dark'
-                    ? 'w-4 h-4 theme-toggle-icon text-amber-400'
-                    : 'w-4 h-4 theme-toggle-icon text-indigo-600';
+                icon.classList.toggle('text-amber-400', theme === 'dark');
+                icon.classList.toggle('text-indigo-600', theme === 'light');
             });
             lucide.createIcons();
+            localStorage.setItem('nexuslearn_theme', theme);
 
             if (notify) {
-                showToast(`Switched to ${theme === 'light' ? 'Light' : 'Dark'} mode`, 'info');
+                showToast(`Switched to ${theme === 'dark' ? 'Dark' : 'Light'} Mode`, 'info');
             }
         }
 
         // ---------------------------------------------------------------------
-        // 2. TOAST NOTIFICATION SYSTEM (No alert/confirm)
+        // 2. TOAST NOTIFICATION SYSTEM (NO ALERT / CONFIRM)
         // ---------------------------------------------------------------------
         function showToast(message, type = 'info') {
             const container = document.getElementById('toast-container');
-            if (!container) return;
             const toast = document.createElement('div');
             const colors = {
-                info: 'bg-slate-900/95 border-indigo-500/50 text-slate-100',
-                success: 'bg-emerald-950/95 border-emerald-500/50 text-emerald-100',
-                error: 'bg-rose-950/95 border-rose-500/50 text-rose-100',
-                warning: 'bg-amber-950/95 border-amber-500/50 text-amber-100'
+                info: 'bg-slate-900/95 border-indigo-500/50 text-indigo-100',
+                success: 'bg-slate-900/95 border-emerald-500/50 text-emerald-200',
+                error: 'bg-slate-900/95 border-rose-500/60 text-rose-200',
+                warning: 'bg-slate-900/95 border-amber-500/60 text-amber-200'
             };
-            toast.className = `pointer-events-auto px-4 py-3 rounded-2xl border shadow-2xl backdrop-blur-md text-xs font-medium flex items-center justify-between gap-3 transition-all duration-300 ${colors[type] || colors.info}`;
-            toast.innerHTML = `<span>${message}</span>`;
+            toast.className = `pointer-events-auto px-4 py-3 rounded-2xl border backdrop-blur-md shadow-xl text-xs font-medium flex items-center gap-2.5 transition-all duration-300 transform translate-y-0 ${colors[type] || colors.info}`;
+            toast.innerHTML = `<span class="w-2 h-2 rounded-full ${type === 'error' ? 'bg-rose-400' : type === 'success' ? 'bg-emerald-400' : 'bg-indigo-400'}"></span><span>${message}</span>`;
             container.appendChild(toast);
             setTimeout(() => {
                 toast.style.opacity = '0';
-                toast.style.transform = 'translateY(-8px)';
+                toast.style.transform = 'translateY(-10px)';
                 setTimeout(() => toast.remove(), 300);
-            }, 3500);
+            }, 3600);
         }
 
         // ---------------------------------------------------------------------
-        // 3. THREE.JS 3D ENTRY GRAPHICS
+        // 3. AMAZING 3D ENTRY GRAPHICS (THREE.JS INTERACTIVE SCENE)
         // ---------------------------------------------------------------------
         function initThreeJSBackground() {
             const container = document.getElementById('three-canvas-container');
             if (!container || typeof THREE === 'undefined') return;
-            container.innerHTML = '';
 
             const scene = new THREE.Scene();
-            threeScene = scene;
             scene.fog = new THREE.FogExp2(state.theme === 'light' ? 0xf1f5f9 : 0x090d16, 0.035);
 
             const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
-            camera.position.z = 18;
+            camera.position.z = 16;
 
             const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
             container.appendChild(renderer.domElement);
 
-            // Lights
-            const ambientLight = new THREE.AmbientLight(0x818cf8, 0.8);
-            scene.add(ambientLight);
-            const pointLight1 = new THREE.PointLight(0x6366f1, 2.5, 50);
-            pointLight1.position.set(10, 12, 12);
-            scene.add(pointLight1);
-            const pointLight2 = new THREE.PointLight(0xec4899, 2.0, 50);
-            pointLight2.position.set(-12, -10, 10);
-            scene.add(pointLight2);
-
-            // Central Holographic Classroom Core (Icosahedron + Wireframe + Orbiting Rings)
+            // Central Holographic Classroom Core (Icosahedron + Wireframe Outer Shell)
             const coreGroup = new THREE.Group();
             scene.add(coreGroup);
 
-            const coreGeo = new THREE.IcosahedronGeometry(4.2, 1);
-            const coreMat = new THREE.MeshStandardMaterial({
+            const innerGeo = new THREE.IcosahedronGeometry(3.2, 1);
+            const innerMat = new THREE.MeshStandardMaterial({
                 color: 0x4f46e5,
                 emissive: 0x312e81,
-                emissiveIntensity: 0.5,
+                emissiveIntensity: 0.6,
                 roughness: 0.25,
                 metalness: 0.8,
-                wireframe: true
-            });
-            const coreMesh = new THREE.Mesh(coreGeo, coreMat);
-            coreGroup.add(coreMesh);
-
-            const innerGeo = new THREE.OctahedronGeometry(2.6, 0);
-            const innerMat = new THREE.MeshStandardMaterial({
-                color: 0x38bdf8,
-                emissive: 0x0284c7,
-                emissiveIntensity: 0.6,
-                roughness: 0.2,
-                metalness: 0.9
+                flatShading: true
             });
             const innerMesh = new THREE.Mesh(innerGeo, innerMat);
             coreGroup.add(innerMesh);
 
-            // Orbiting Torus Rings
-            const ring1 = new THREE.Mesh(
-                new THREE.TorusGeometry(6.8, 0.06, 16, 100),
-                new THREE.MeshBasicMaterial({ color: 0x818cf8, transparent: true, opacity: 0.55 })
-            );
+            const wireGeo = new THREE.IcosahedronGeometry(4.1, 2);
+            const wireMat = new THREE.MeshBasicMaterial({
+                color: 0x818cf8,
+                wireframe: true,
+                transparent: true,
+                opacity: 0.25
+            });
+            const wireMesh = new THREE.Mesh(wireGeo, wireMat);
+            coreGroup.add(wireMesh);
+
+            // Orbiting Knowledge Rings
+            const ringGeo = new THREE.TorusGeometry(6.2, 0.05, 16, 100);
+            const ringMat = new THREE.MeshBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.45 });
+            const ring1 = new THREE.Mesh(ringGeo, ringMat);
             ring1.rotation.x = Math.PI / 3;
             coreGroup.add(ring1);
 
-            const ring2 = new THREE.Mesh(
-                new THREE.TorusGeometry(8.5, 0.05, 16, 100),
-                new THREE.MeshBasicMaterial({ color: 0xf472b6, transparent: true, opacity: 0.4 })
-            );
+            const ring2 = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ color: 0xa855f7, transparent: true, opacity: 0.35 }));
             ring2.rotation.y = Math.PI / 4;
+            ring2.rotation.x = -Math.PI / 4;
             coreGroup.add(ring2);
 
-            // Floating Knowledge Nodes
+            // Floating Polyhedral Knowledge Nodes
             const nodes = [];
-            const nodeGeo = new THREE.SphereGeometry(0.18, 12, 12);
-            for (let i = 0; i < 65; i++) {
-                const mat = new THREE.MeshBasicMaterial({
-                    color: i % 3 === 0 ? 0x38bdf8 : (i % 3 === 1 ? 0xa855f7 : 0x6366f1)
-                });
-                const mesh = new THREE.Mesh(nodeGeo, mat);
+            const nodeGeos = [
+                new THREE.OctahedronGeometry(0.45),
+                new THREE.TetrahedronGeometry(0.5),
+                new THREE.BoxGeometry(0.55, 0.55, 0.55)
+            ];
+            const nodeColors = [0x38bdf8, 0x818cf8, 0xc084fc, 0x34d399];
+
+            for (let i = 0; i < 38; i++) {
+                const mesh = new THREE.Mesh(
+                    nodeGeos[i % nodeGeos.length],
+                    new THREE.MeshStandardMaterial({
+                        color: nodeColors[i % nodeColors.length],
+                        emissive: nodeColors[i % nodeColors.length],
+                        emissiveIntensity: 0.3,
+                        roughness: 0.3
+                    })
+                );
+                const radius = 7 + Math.random() * 14;
+                const theta = Math.random() * Math.PI * 2;
+                const phi = Math.acos((Math.random() * 2) - 1);
                 mesh.position.set(
-                    (Math.random() - 0.5) * 34,
-                    (Math.random() - 0.5) * 24,
-                    (Math.random() - 0.5) * 20
+                    radius * Math.sin(phi) * Math.cos(theta),
+                    radius * Math.sin(phi) * Math.sin(theta),
+                    radius * Math.cos(phi)
                 );
                 mesh.userData = {
-                    speedY: 0.004 + Math.random() * 0.008,
-                    offset: Math.random() * Math.PI * 2
+                    rotSpeedX: (Math.random() - 0.5) * 0.02,
+                    rotSpeedY: (Math.random() - 0.5) * 0.02,
+                    floatOffset: Math.random() * Math.PI * 2
                 };
                 scene.add(mesh);
                 nodes.push(mesh);
             }
 
-            // Mouse/Touch Parallax
-            let targetX = 0, targetY = 0;
-            window.addEventListener('pointermove', (e) => {
-                targetX = (e.clientX / window.innerWidth - 0.5) * 2;
-                targetY = (e.clientY / window.innerHeight - 0.5) * 2;
+            // Starfield Particles
+            const particleCount = 650;
+            const particleGeo = new THREE.BufferGeometry();
+            const positions = new Float32Array(particleCount * 3);
+            for (let i = 0; i < particleCount * 3; i++) {
+                positions[i] = (Math.random() - 0.5) * 55;
+            }
+            particleGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            const particleMat = new THREE.PointsMaterial({ color: 0x94a3b8, size: 0.12, transparent: true, opacity: 0.65 });
+            const particles = new THREE.Points(particleGeo, particleMat);
+            scene.add(particles);
+
+            // Dynamic Studio Lights
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+            scene.add(ambientLight);
+
+            const pointLight1 = new THREE.PointLight(0x6366f1, 2.5, 40);
+            pointLight1.position.set(8, 8, 10);
+            scene.add(pointLight1);
+
+            const pointLight2 = new THREE.PointLight(0x38bdf8, 2.0, 40);
+            pointLight2.position.set(-10, -6, 8);
+            scene.add(pointLight2);
+
+            // Mouse / Touch Parallax Interaction
+            let targetMouseX = 0;
+            let targetMouseY = 0;
+            window.addEventListener('mousemove', (e) => {
+                targetMouseX = (e.clientX / window.innerWidth - 0.5) * 2;
+                targetMouseY = (e.clientY / window.innerHeight - 0.5) * 2;
             });
 
             window.addEventListener('resize', () => {
@@ -803,31 +862,39 @@
                 renderer.setSize(window.innerWidth, window.innerHeight);
             });
 
-            let clock = 0;
-            function animate() {
-                requestAnimationFrame(animate);
-                clock += 0.015;
+            let clock = new THREE.Clock();
+            function animate3D() {
+                requestAnimationFrame(animate3D);
+                if (document.getElementById('lobby-screen').classList.contains('hidden')) return;
 
-                coreMesh.rotation.y += 0.004;
-                coreMesh.rotation.x += 0.002;
-                innerMesh.rotation.y -= 0.008;
-                ring1.rotation.z += 0.005;
-                ring2.rotation.z -= 0.004;
-
-                coreGroup.position.x += (targetX * 1.8 - coreGroup.position.x) * 0.05;
-                coreGroup.position.y += (-targetY * 1.4 - coreGroup.position.y) * 0.05;
+                const elapsed = clock.getElapsedTime();
+                coreGroup.rotation.y += 0.004;
+                coreGroup.rotation.x = Math.sin(elapsed * 0.4) * 0.15;
+                wireMesh.rotation.y -= 0.006;
+                ring1.rotation.z += 0.008;
+                ring2.rotation.z -= 0.007;
 
                 nodes.forEach((n) => {
-                    n.position.y += Math.sin(clock + n.userData.offset) * n.userData.speedY;
+                    n.rotation.x += n.userData.rotSpeedX;
+                    n.rotation.y += n.userData.rotSpeedY;
+                    n.position.y += Math.sin(elapsed + n.userData.floatOffset) * 0.004;
                 });
+
+                particles.rotation.y = elapsed * 0.02;
+
+                camera.position.x += (targetMouseX * 2.5 - camera.position.x) * 0.05;
+                camera.position.y += (-targetMouseY * 2.0 - camera.position.y) * 0.05;
+                camera.lookAt(scene.position);
 
                 renderer.render(scene, camera);
             }
-            animate();
+
+            threeScene = { scene, camera, renderer };
+            animate3D();
         }
 
         // ---------------------------------------------------------------------
-        // 4. ROLE SWITCHING, PASSCODES & REUSABLE LINK
+        // 4. ROLE SWITCHING & PER-STUDENT PASSWORD MANAGEMENT
         // ---------------------------------------------------------------------
         function switchRole(role) {
             state.role = role;
@@ -835,40 +902,45 @@
             const tabStudent = document.getElementById('tab-student');
             const teacherSettings = document.getElementById('teacher-settings');
             const studentSettings = document.getElementById('student-settings');
+            const lobbyRecordingSection = document.getElementById('lobby-recording-section');
 
             if (role === 'teacher') {
                 tabTeacher.className = 'py-2.5 px-4 rounded-xl text-sm font-semibold transition-all flex items-center justify-center gap-2 bg-indigo-600 text-white shadow-md';
                 tabStudent.className = 'py-2.5 px-4 rounded-xl text-sm font-semibold transition-all flex items-center justify-center gap-2 text-slate-400 hover:text-white';
                 teacherSettings.classList.remove('hidden');
                 studentSettings.classList.add('hidden');
+                if (lobbyRecordingSection) lobbyRecordingSection.classList.remove('hidden');
             } else {
                 tabStudent.className = 'py-2.5 px-4 rounded-xl text-sm font-semibold transition-all flex items-center justify-center gap-2 bg-indigo-600 text-white shadow-md';
                 tabTeacher.className = 'py-2.5 px-4 rounded-xl text-sm font-semibold transition-all flex items-center justify-center gap-2 text-slate-400 hover:text-white';
                 studentSettings.classList.remove('hidden');
                 teacherSettings.classList.add('hidden');
+                if (lobbyRecordingSection) lobbyRecordingSection.classList.add('hidden');
             }
         }
 
         function renderStudentPasswords() {
             const lobbyList = document.getElementById('student-password-list');
             const modalList = document.getElementById('modal-password-list');
+
             if (lobbyList) {
-                lobbyList.innerHTML = state.studentPasswords.map(s => `
-                    <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 text-xs">
-                        <span class="text-slate-200 font-medium">${s.name}:</span>
-                        <span class="font-mono text-emerald-400">${s.pass}</span>
-                        <button onclick="removeStudentPassword(${s.id})" class="text-slate-500 hover:text-rose-400 ml-1">&times;</button>
-                    </span>
+                lobbyList.innerHTML = state.studentPasswords.map(item => `
+                    <div class="inline-flex items-center gap-1.5 bg-slate-950 border border-slate-800 px-2.5 py-1 rounded-lg text-xs">
+                        <span class="text-slate-300 font-medium">${item.name}:</span>
+                        <span class="font-mono text-emerald-400">${item.pass}</span>
+                        <button onclick="removeStudentPassword(${item.id})" class="text-slate-500 hover:text-rose-400 ml-1">&times;</button>
+                    </div>
                 `).join('');
             }
+
             if (modalList) {
-                modalList.innerHTML = state.studentPasswords.map(s => `
-                    <div class="flex items-center justify-between px-3 py-2 rounded-xl bg-slate-900/90 border border-slate-800 text-xs">
+                modalList.innerHTML = state.studentPasswords.map(item => `
+                    <div class="flex items-center justify-between bg-slate-900/90 border border-slate-800 px-3 py-2 rounded-xl text-xs">
                         <div>
-                            <span class="font-semibold text-white">${s.name}</span>
-                            <span class="ml-2 font-mono text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded">${s.pass}</span>
+                            <span class="font-semibold text-white">${item.name}</span>
+                            <span class="ml-2 font-mono text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded">${item.pass}</span>
                         </div>
-                        <button onclick="removeStudentPassword(${s.id})" class="text-rose-400 hover:text-rose-300 font-semibold">Remove</button>
+                        <button onclick="removeStudentPassword(${item.id})" class="text-rose-400 hover:text-rose-300 text-xs font-medium">Revoke</button>
                     </div>
                 `).join('');
             }
@@ -886,6 +958,7 @@
             state.studentPasswords.push({ id: Date.now(), name, pass });
             nameEl.value = '';
             passEl.value = '';
+            persistStudentPasswords();
             renderStudentPasswords();
             syncPasscodesToPeers();
             showToast(`Added access key for ${name}`, 'success');
@@ -903,6 +976,7 @@
             state.studentPasswords.push({ id: Date.now(), name, pass });
             nameEl.value = '';
             passEl.value = '';
+            persistStudentPasswords();
             renderStudentPasswords();
             syncPasscodesToPeers();
             showToast(`Added access key for ${name}`, 'success');
@@ -910,6 +984,7 @@
 
         function removeStudentPassword(id) {
             state.studentPasswords = state.studentPasswords.filter(s => s.id !== id);
+            persistStudentPasswords();
             renderStudentPasswords();
             syncPasscodesToPeers();
         }
@@ -925,9 +1000,14 @@
 
         function copyInviteLink() {
             const roomVal = document.getElementById('input-room').value.trim() || 'math-101-studio';
+            persistStudentPasswords();
             const url = new URL(window.location.href);
             url.searchParams.set('room', roomVal);
             url.searchParams.set('role', 'student');
+            try {
+                const encodedKeys = btoa(unescape(encodeURIComponent(JSON.stringify(state.studentPasswords))));
+                url.searchParams.set('keys', encodedKeys);
+            } catch (e) {}
 
             const tempInput = document.createElement('input');
             tempInput.value = url.toString();
@@ -936,25 +1016,26 @@
             document.execCommand('copy');
             document.body.removeChild(tempInput);
 
-            showToast('Reusable student classroom link copied to clipboard!', 'success');
+            showToast('Reusable student classroom link (with updated keys) copied!', 'success');
         }
 
         // ---------------------------------------------------------------------
         // 5. LOCAL FOLDER SELECTION & 720P AUTO-RECORDING
         // ---------------------------------------------------------------------
         async function selectRecordingFolder() {
-            if (!('showDirectoryPicker' in window)) {
-                showToast('Browser will auto-download 720p recording file on stop.', 'info');
-                document.getElementById('folder-status-text').textContent = 'Auto-download mode ready (720p MP4/WebM).';
-                return;
-            }
             try {
-                state.dirHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
-                document.getElementById('folder-status-text').textContent = `Saving 720p recordings to: /${state.dirHandle.name}`;
-                showToast(`Folder "${state.dirHandle.name}" selected for 720p auto-recording!`, 'success');
+                if ('showDirectoryPicker' in window) {
+                    state.dirHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
+                    document.getElementById('folder-status-text').innerHTML = `<span class="text-emerald-400 font-semibold">Folder ready:</span> /${state.dirHandle.name} (Auto-saves 720p)`;
+                    document.getElementById('btn-select-folder').innerHTML = `<i data-lucide="check-circle-2" class="w-3.5 h-3.5 text-emerald-400"></i> ${state.dirHandle.name}`;
+                    lucide.createIcons();
+                    showToast(`Selected local folder: ${state.dirHandle.name}`, 'success');
+                } else {
+                    showToast('Direct folder picker unavailable in this browser; recordings will auto-download directly to Downloads.', 'info');
+                }
             } catch (err) {
                 if (err.name !== 'AbortError') {
-                    showToast('Folder access unavailable; fallback download will be used.', 'warning');
+                    showToast('Folder selection skipped. Recordings will auto-download when session ends.', 'info');
                 }
             }
         }
@@ -962,108 +1043,146 @@
         function start720pRecording() {
             if (state.isRecording) return;
 
+            // Create an offscreen 1280x720 (720p) compositing canvas combining Whiteboard + Local & Remote Video
+            const compCanvas = document.createElement('canvas');
+            compCanvas.width = 1280;
+            compCanvas.height = 720;
+            const compCtx = compCanvas.getContext('2d');
+
             const wbCanvas = document.getElementById('whiteboard-canvas');
-            const localVideo = document.getElementById('local-video');
-            const remoteVideo = document.getElementById('remote-video');
+            const localVid = document.getElementById('local-video');
+            const remoteVid = document.getElementById('remote-video');
 
-            // Create offscreen 1280x720 (720p) compositing canvas
-            const recCanvas = document.createElement('canvas');
-            recCanvas.width = 1280;
-            recCanvas.height = 720;
-            const recCtx = recCanvas.getContext('2d');
-
-            state.isRecording = true;
-            state.recordedChunks = [];
-            state.recStartTime = Date.now();
-
-            // Render loop for 720p composite stream
-            function drawCompositeFrame() {
+            function renderCompositeFrame() {
                 if (!state.isRecording) return;
                 // Background
-                recCtx.fillStyle = state.theme === 'light' ? '#ffffff' : '#0f172a';
-                recCtx.fillRect(0, 0, 1280, 720);
+                compCtx.fillStyle = state.theme === 'light' ? '#f8fafc' : '#0f172a';
+                compCtx.fillRect(0, 0, 1280, 720);
 
-                // Draw Whiteboard onto left 960px
-                if (wbCanvas) {
-                    recCtx.drawImage(wbCanvas, 0, 0, 960, 720);
+                // Draw Shared Whiteboard on Left (960x720)
+                if (wbCanvas && wbCanvas.width > 0) {
+                    compCtx.drawImage(wbCanvas, 0, 0, 960, 720);
                 }
 
-                // Draw Right Sidebar Video Feeds (320px wide)
-                recCtx.fillStyle = '#020617';
-                recCtx.fillRect(960, 0, 320, 720);
+                // Draw Sidebar Videos on Right (320px wide)
+                compCtx.fillStyle = state.theme === 'light' ? '#e2e8f0' : '#020617';
+                compCtx.fillRect(960, 0, 320, 720);
 
-                if (localVideo && localVideo.readyState >= 2) {
-                    recCtx.drawImage(localVideo, 970, 20, 300, 210);
+                // Local Video Top-Right
+                if (localVid && localVid.readyState >= 2) {
+                    compCtx.drawImage(localVid, 970, 20, 300, 170);
                 }
-                if (remoteVideo && remoteVideo.readyState >= 2 && !remoteVideo.classList.contains('hidden')) {
-                    recCtx.drawImage(remoteVideo, 970, 250, 300, 210);
+                // Remote Video Middle-Right
+                if (remoteVid && !remoteVid.classList.contains('hidden') && remoteVid.readyState >= 2) {
+                    compCtx.drawImage(remoteVid, 970, 210, 300, 170);
                 }
 
                 // Watermark & Timestamp
-                recCtx.fillStyle = '#94a3b8';
-                recCtx.font = '14px Inter, sans-serif';
-                recCtx.fillText(`NexusLearn 720p • Room: ${state.roomId}`, 975, 695);
+                compCtx.fillStyle = 'rgba(255,255,255,0.75)';
+                compCtx.font = 'bold 14px Inter, sans-serif';
+                compCtx.fillText(`NexusLearn 720p • ${state.roomId}`, 975, 695);
 
-                state.recAnimFrame = requestAnimationFrame(drawCompositeFrame);
-            }
-            drawCompositeFrame();
-
-            // Capture 30fps video + mix audio tracks
-            const canvasStream = recCanvas.captureStream(30);
-            try {
-                const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-                const dest = audioCtx.createMediaStreamDestination();
-                if (state.localStream && state.localStream.getAudioTracks().length > 0) {
-                    const localSrc = audioCtx.createMediaStreamSource(state.localStream);
-                    localSrc.connect(dest);
-                }
-                if (state.remoteStream && state.remoteStream.getAudioTracks().length > 0) {
-                    const remoteSrc = audioCtx.createMediaStreamSource(state.remoteStream);
-                    remoteSrc.connect(dest);
-                }
-                dest.stream.getAudioTracks().forEach(track => canvasStream.addTrack(track));
-            } catch (e) {
-                console.warn('AudioContext mix fallback:', e);
+                state.recAnimFrame = requestAnimationFrame(renderCompositeFrame);
             }
 
+            state.isRecording = true;
+            renderCompositeFrame();
+
+            // Capture 30fps 720p Video Stream + Mix Audio Tracks
+            const canvasStream = compCanvas.captureStream(30);
+            const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            const dest = audioCtx.createMediaStreamDestination();
+
+            if (state.localStream && state.localStream.getAudioTracks().length > 0) {
+                const localAudioSrc = audioCtx.createMediaStreamSource(state.localStream);
+                localAudioSrc.connect(dest);
+            }
+            if (state.remoteStream && state.remoteStream.getAudioTracks().length > 0) {
+                const remoteAudioSrc = audioCtx.createMediaStreamSource(state.remoteStream);
+                remoteAudioSrc.connect(dest);
+            }
+
+            const combinedTracks = [
+                ...canvasStream.getVideoTracks(),
+                ...dest.stream.getAudioTracks()
+            ];
+            const mixedStream = new MediaStream(combinedTracks);
+
+            // Prefer MP4/H.264 if supported by browser, fallback to WebM
             const mimeTypes = [
                 'video/mp4;codecs=avc1,mp4a.40.2',
                 'video/mp4',
                 'video/webm;codecs=vp9,opus',
                 'video/webm'
             ];
-            const supportedMime = mimeTypes.find(m => MediaRecorder.isTypeSupported(m)) || '';
-
-            try {
-                state.mediaRecorder = supportedMime
-                    ? new MediaRecorder(canvasStream, { mimeType: supportedMime, videoBitsPerSecond: 2500000 })
-                    : new MediaRecorder(canvasStream);
-
-                state.mediaRecorder.ondataavailable = (e) => {
-                    if (e.data && e.data.size > 0) state.recordedChunks.push(e.data);
-                };
-
-                state.mediaRecorder.onstop = save720pRecordingFile;
-                state.mediaRecorder.start(1000);
-
-                // UI Updates
-                document.getElementById('rec-indicator').classList.remove('hidden');
-                document.getElementById('rec-indicator').classList.add('flex');
-                document.getElementById('label-record').textContent = 'Stop 720p Rec';
-                document.getElementById('btn-record').classList.add('border-rose-500/60', 'bg-rose-950/40');
-
-                state.recTimerInterval = setInterval(() => {
-                    const elapsed = Math.floor((Date.now() - state.recStartTime) / 1000);
-                    const mins = String(Math.floor(elapsed / 60)).padStart(2, '0');
-                    const secs = String(elapsed % 60).padStart(2, '0');
-                    document.getElementById('rec-timer').textContent = `${mins}:${secs}`;
-                }, 1000);
-
-                showToast('720p Session Recording started automatically.', 'success');
-            } catch (err) {
-                state.isRecording = false;
-                showToast('Could not start MediaRecorder in this environment.', 'error');
+            let selectedMime = '';
+            for (const mt of mimeTypes) {
+                if (MediaRecorder.isTypeSupported(mt)) {
+                    selectedMime = mt;
+                    break;
+                }
             }
+
+            state.recordedChunks = [];
+            state.mediaRecorder = new MediaRecorder(mixedStream, {
+                mimeType: selectedMime || undefined,
+                videoBitsPerSecond: 2500000 // 2.5 Mbps crisp 720p
+            });
+
+            state.mediaRecorder.ondataavailable = (e) => {
+                if (e.data && e.data.size > 0) {
+                    state.recordedChunks.push(e.data);
+                }
+            };
+
+            state.mediaRecorder.onstop = async () => {
+                const blobType = selectedMime.includes('mp4') ? 'video/mp4' : 'video/webm';
+                const blob = new Blob(state.recordedChunks, { type: blobType });
+                const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+                const filename = `${state.roomId}_720p_${timestamp}.mp4`;
+
+                if (state.dirHandle) {
+                    try {
+                        const fileHandle = await state.dirHandle.getFileHandle(filename, { create: true });
+                        const writable = await fileHandle.createWritable();
+                        await writable.write(blob);
+                        await writable.close();
+                        showToast(`Saved 720p recording to folder: ${filename}`, 'success');
+                        return;
+                    } catch (err) {
+                        console.warn('Directory write fallback to download:', err);
+                    }
+                }
+
+                // Fallback automatic download to user's computer
+                const downloadUrl = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = downloadUrl;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(downloadUrl);
+                showToast(`720p session saved: ${filename}`, 'success');
+            };
+
+            state.mediaRecorder.start(1000);
+
+            // UI Recording Indicators
+            document.getElementById('rec-indicator').classList.remove('hidden');
+            document.getElementById('rec-indicator').classList.add('flex');
+            document.getElementById('label-record').textContent = 'Stop Rec';
+            document.getElementById('btn-record').classList.add('border-rose-500/60', 'bg-rose-950/40');
+
+            state.recStartTime = Date.now();
+            state.recTimerInterval = setInterval(() => {
+                const diff = Math.floor((Date.now() - state.recStartTime) / 1000);
+                const mins = String(Math.floor(diff / 60)).padStart(2, '0');
+                const secs = String(diff % 60).padStart(2, '0');
+                document.getElementById('rec-timer').textContent = `${mins}:${secs}`;
+            }, 1000);
+
+            showToast('720p Auto-Recording started!', 'info');
         }
 
         function stop720pRecording() {
@@ -1090,39 +1209,55 @@
             }
         }
 
-        async function save720pRecordingFile() {
-            if (!state.recordedChunks.length) return;
-            const blob = new Blob(state.recordedChunks, { type: 'video/mp4' });
-            const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-            const filename = `${state.roomId}_720p_${timestamp}.mp4`;
-
-            if (state.dirHandle) {
-                try {
-                    const fileHandle = await state.dirHandle.getFileHandle(filename, { create: true });
-                    const writable = await fileHandle.createWritable();
-                    await writable.write(blob);
-                    await writable.close();
-                    showToast(`Saved ${filename} to selected folder!`, 'success');
-                    return;
-                } catch (err) {
-                    console.warn('Directory write fallback to download:', err);
-                }
-            }
-
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = filename;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            setTimeout(() => URL.revokeObjectURL(url), 5000);
-            showToast(`Downloaded ${filename} (720p)`, 'success');
-        }
-
         // ---------------------------------------------------------------------
         // 6. ENTERING CLASSROOM & WEBRTC PEER-TO-PEER ENGINE
         // ---------------------------------------------------------------------
+        function verifyPasscodeWithLiveHost(roomId, passInput) {
+            return new Promise((resolve) => {
+                // First check local list
+                const localMatch = state.studentPasswords.find(s => String(s.pass).trim() === passInput);
+                if (localMatch) {
+                    resolve({ valid: true, student: localMatch });
+                    return;
+                }
+
+                // Also check latest localStorage for this room
+                try {
+                    const stored = JSON.parse(localStorage.getItem(`nexuslearn_keys_${roomId}`) || '[]');
+                    const storedMatch = stored.find(s => String(s.pass).trim() === passInput);
+                    if (storedMatch) {
+                        state.studentPasswords = stored;
+                        resolve({ valid: true, student: storedMatch });
+                        return;
+                    }
+                } catch (e) {}
+
+                // Query live teacher session over BroadcastChannel in case teacher added the key live
+                const tempChannel = new BroadcastChannel(`nexuslearn_room_${roomId}`);
+                const reqId = Date.now() + '_' + Math.random();
+                const timeout = setTimeout(() => {
+                    tempChannel.close();
+                    resolve({ valid: false });
+                }, 600);
+
+                tempChannel.onmessage = (event) => {
+                    const msg = event.data;
+                    if (msg && msg.type === 'verify-pass-result' && msg.reqId === reqId) {
+                        clearTimeout(timeout);
+                        tempChannel.close();
+                        if (msg.keys) state.studentPasswords = msg.keys;
+                        resolve({ valid: msg.valid });
+                    }
+                };
+
+                tempChannel.postMessage({
+                    type: 'verify-pass',
+                    reqId,
+                    pass: passInput
+                });
+            });
+        }
+
         async function enterClassroom() {
             const nameInput = document.getElementById('input-name').value.trim();
             const roomInput = document.getElementById('input-room').value.trim() || 'math-101-studio';
@@ -1132,11 +1267,19 @@
                 return;
             }
 
+            if (state.role === 'teacher') {
+                persistStudentPasswords();
+            }
+
             if (state.role === 'student') {
                 const passInput = document.getElementById('input-student-password').value.trim();
-                const matched = state.studentPasswords.find(s => s.pass === passInput);
-                if (!matched) {
-                    showToast('Invalid student passcode. Check with your teacher (try 1010 or 2020).', 'error');
+                if (!passInput) {
+                    showToast('Please enter your student passcode.', 'warning');
+                    return;
+                }
+                const verification = await verifyPasscodeWithLiveHost(roomInput, passInput);
+                if (!verification.valid) {
+                    showToast('Invalid student passcode. Check with your teacher or re-copy the latest invite link.', 'error');
                     return;
                 }
             }
@@ -1144,27 +1287,30 @@
             state.userName = nameInput;
             state.roomId = roomInput;
 
-            // Update Classroom UI Labels
+            // Update Header & UI Labels
             document.getElementById('header-room-name').textContent = state.roomId;
-            document.getElementById('header-role-badge').textContent = state.role === 'teacher' ? 'Teacher' : 'Student';
+            document.getElementById('header-role-badge').textContent = state.role === 'teacher' ? 'Teacher / Host' : 'Student';
             document.getElementById('local-name-tag').textContent = `${state.userName} (You)`;
             document.getElementById('local-avatar-initials').textContent = state.userName.slice(0, 2).toUpperCase();
 
             if (state.role === 'student') {
                 document.getElementById('btn-manage-keys').classList.add('hidden');
+                document.getElementById('btn-record').classList.add('hidden');
+            } else {
+                document.getElementById('btn-manage-keys').classList.remove('hidden');
+                document.getElementById('btn-record').classList.remove('hidden');
             }
 
-            // Switch Screens
+            // Transition Screens
             document.getElementById('lobby-screen').classList.add('hidden');
             document.getElementById('classroom-screen').classList.remove('hidden');
 
-            // Initialize Media, Whiteboard, and WebRTC Signaling
-            await initLocalMedia();
+            // Initialize Canvas, Camera/Mic, WebRTC Signaling, and Auto-Recording
             initWhiteboard();
+            await initLocalMedia();
             initWebRTCSignaling();
 
-            // Auto-record if enabled
-            if (document.getElementById('toggle-autorecord').checked) {
+            if (state.role === 'teacher' && document.getElementById('toggle-autorecord').checked) {
                 setTimeout(() => start720pRecording(), 800);
             }
         }
@@ -1175,17 +1321,18 @@
                     video: { width: { ideal: 1280 }, height: { ideal: 720 } },
                     audio: true
                 });
-                const localVideo = document.getElementById('local-video');
-                localVideo.srcObject = state.localStream;
+                const localVid = document.getElementById('local-video');
+                localVid.srcObject = state.localStream;
             } catch (err) {
-                console.warn('Camera/Mic permission unavailable, using avatar fallback:', err);
+                console.warn('Camera/Mic permission fallback:', err);
+                document.getElementById('local-video').classList.add('hidden');
                 document.getElementById('local-video-fallback').classList.remove('hidden');
-                showToast('Camera/Mic blocked or unavailable — joined in Whiteboard & Chat mode.', 'warning');
+                showToast('Camera/Mic unavailable or blocked — running in Whiteboard & Chat mode.', 'warning');
             }
         }
 
         function initWebRTCSignaling() {
-            // BroadcastChannel enables instant zero-backend WebRTC signaling, chat, and whiteboard sync across tabs
+            // BroadcastChannel enables instant zero-server WebRTC signaling & whiteboard sync across tabs/windows
             state.signalingChannel = new BroadcastChannel(`nexuslearn_room_${state.roomId}`);
 
             state.signalingChannel.onmessage = async (event) => {
@@ -1194,19 +1341,18 @@
 
                 switch (msg.type) {
                     case 'join':
-                        document.getElementById('peer-count-badge').textContent = '2 Online';
+                        showToast(`${msg.sender} (${msg.role}) joined the classroom!`, 'success');
                         document.getElementById('remote-status-text').textContent = `${msg.sender} connected`;
-                        document.getElementById('remote-name-tag').textContent = msg.sender;
-                        document.getElementById('remote-name-badge').classList.remove('hidden');
-                        appendChatMessage('System', `${msg.sender} (${msg.role}) joined the session.`, true);
-                        await createAndSendOffer();
+                        document.getElementById('peer-count-badge').textContent = '2 Online';
+                        appendSystemChat(`${msg.sender} joined the session.`);
+                        syncPasscodesToPeers();
+                        await createAndSendOffer(msg.sender);
                         break;
 
                     case 'offer':
-                        document.getElementById('peer-count-badge').textContent = '2 Online';
                         document.getElementById('remote-name-tag').textContent = msg.sender;
-                        document.getElementById('remote-name-badge').classList.remove('hidden');
-                        await handleReceiveOffer(msg.offer);
+                        document.getElementById('peer-count-badge').textContent = '2 Online';
+                        await handleReceiveOffer(msg.offer, msg.sender);
                         break;
 
                     case 'answer':
@@ -1215,28 +1361,20 @@
                         }
                         break;
 
-                    case 'ice-candidate':
+                    case 'candidate':
                         if (state.peerConnection && msg.candidate) {
                             try {
                                 await state.peerConnection.addIceCandidate(new RTCIceCandidate(msg.candidate));
-                            } catch (e) { /* ignore stale candidates */ }
+                            } catch (e) {}
                         }
                         break;
 
                     case 'chat':
-                        appendChatMessage(msg.sender, msg.text, false);
+                        appendChatBubble(msg.sender, msg.text, false);
                         break;
 
                     case 'wb-draw':
-                        drawSegment(wbCtx, msg.x0, msg.y0, msg.x1, msg.y1, msg.color, msg.width, msg.alpha);
-                        break;
-
-                    case 'wb-shape':
-                        drawShape(wbCtx, msg.shape, msg.x0, msg.y0, msg.x1, msg.y1, msg.color, msg.width);
-                        break;
-
-                    case 'wb-text':
-                        drawTextOnBoard(wbCtx, msg.text, msg.x, msg.y, msg.color, msg.size);
+                        drawRemoteAction(msg.action);
                         break;
 
                     case 'wb-clear':
@@ -1245,7 +1383,20 @@
 
                     case 'sync-keys':
                         state.studentPasswords = msg.keys;
+                        persistStudentPasswords();
                         renderStudentPasswords();
+                        break;
+
+                    case 'verify-pass':
+                        if (state.role === 'teacher') {
+                            const isValid = state.studentPasswords.some(s => String(s.pass).trim() === String(msg.pass).trim());
+                            state.signalingChannel.postMessage({
+                                type: 'verify-pass-result',
+                                reqId: msg.reqId,
+                                valid: isValid,
+                                keys: state.studentPasswords
+                            });
+                        }
                         break;
                 }
             };
@@ -1258,7 +1409,7 @@
             });
         }
 
-        function createPeerConnection() {
+        function createPeerConnection(remoteName) {
             const pc = new RTCPeerConnection({
                 iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
             });
@@ -1267,30 +1418,32 @@
                 state.localStream.getTracks().forEach(track => pc.addTrack(track, state.localStream));
             }
 
-            pc.ontrack = (event) => {
-                state.remoteStream = event.streams[0];
-                const remoteVideo = document.getElementById('remote-video');
-                remoteVideo.srcObject = state.remoteStream;
-                remoteVideo.classList.remove('hidden');
-                document.getElementById('remote-placeholder').classList.add('hidden');
-            };
-
             pc.onicecandidate = (event) => {
-                if (event.candidate && state.signalingChannel) {
+                if (event.candidate) {
                     state.signalingChannel.postMessage({
-                        type: 'ice-candidate',
+                        type: 'candidate',
                         sender: state.userName,
                         candidate: event.candidate.toJSON()
                     });
                 }
             };
 
+            pc.ontrack = (event) => {
+                state.remoteStream = event.streams[0];
+                const remoteVid = document.getElementById('remote-video');
+                remoteVid.srcObject = state.remoteStream;
+                remoteVid.classList.remove('hidden');
+                document.getElementById('remote-placeholder').classList.add('hidden');
+                document.getElementById('remote-name-badge').classList.remove('hidden');
+                document.getElementById('remote-name-tag').textContent = remoteName || 'Participant';
+            };
+
             state.peerConnection = pc;
             return pc;
         }
 
-        async function createAndSendOffer() {
-            const pc = createPeerConnection();
+        async function createAndSendOffer(remoteName) {
+            const pc = createPeerConnection(remoteName);
             const offer = await pc.createOffer();
             await pc.setLocalDescription(offer);
             state.signalingChannel.postMessage({
@@ -1300,8 +1453,8 @@
             });
         }
 
-        async function handleReceiveOffer(offer) {
-            const pc = createPeerConnection();
+        async function handleReceiveOffer(offer, remoteName) {
+            const pc = createPeerConnection(remoteName);
             await pc.setRemoteDescription(new RTCSessionDescription(offer));
             const answer = await pc.createAnswer();
             await pc.setLocalDescription(answer);
@@ -1313,7 +1466,7 @@
         }
 
         function syncPasscodesToPeers() {
-            if (state.signalingChannel) {
+            if (state.signalingChannel && state.role === 'teacher') {
                 state.signalingChannel.postMessage({
                     type: 'sync-keys',
                     sender: state.userName,
@@ -1344,17 +1497,16 @@
             const icon = document.getElementById('icon-cam');
             icon.setAttribute('data-lucide', state.isCamOn ? 'video' : 'video-off');
             icon.className = state.isCamOn ? 'w-4 h-4 text-emerald-400' : 'w-4 h-4 text-rose-400';
-            document.getElementById('local-video-fallback').classList.toggle('hidden', state.isCamOn);
             lucide.createIcons();
         }
 
         async function toggleScreenShare() {
-            if (!state.isSharingScreen) {
-                try {
+            try {
+                if (!state.isSharingScreen) {
                     state.screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
                     const screenTrack = state.screenStream.getVideoTracks()[0];
                     document.getElementById('local-video').srcObject = state.screenStream;
-                    state.isSharingScreen = true;
+                    document.getElementById('local-video').classList.remove('-scale-x-100');
 
                     if (state.peerConnection) {
                         const sender = state.peerConnection.getSenders().find(s => s.track && s.track.kind === 'video');
@@ -1362,33 +1514,34 @@
                     }
 
                     screenTrack.onended = () => stopScreenShare();
-                    showToast('Screen sharing started.', 'info');
-                } catch (err) {
-                    showToast('Screen share cancelled.', 'warning');
+                    state.isSharingScreen = true;
+                    showToast('Screen sharing active', 'info');
+                } else {
+                    stopScreenShare();
                 }
-            } else {
-                stopScreenShare();
+            } catch (err) {
+                showToast('Screen sharing cancelled.', 'info');
             }
         }
 
         function stopScreenShare() {
             if (state.screenStream) {
                 state.screenStream.getTracks().forEach(t => t.stop());
-                state.screenStream = null;
             }
-            state.isSharingScreen = false;
             if (state.localStream) {
                 document.getElementById('local-video').srcObject = state.localStream;
-                const camTrack = state.localStream.getVideoTracks()[0];
-                if (state.peerConnection && camTrack) {
+                document.getElementById('local-video').classList.add('-scale-x-100');
+                if (state.peerConnection) {
+                    const camTrack = state.localStream.getVideoTracks()[0];
                     const sender = state.peerConnection.getSenders().find(s => s.track && s.track.kind === 'video');
-                    if (sender) sender.replaceTrack(camTrack);
+                    if (sender && camTrack) sender.replaceTrack(camTrack);
                 }
             }
+            state.isSharingScreen = false;
         }
 
         function leaveClassroom() {
-            if (state.isRecording) stop720pRecording();
+            stop720pRecording();
             if (state.localStream) state.localStream.getTracks().forEach(t => t.stop());
             if (state.screenStream) state.screenStream.getTracks().forEach(t => t.stop());
             if (state.peerConnection) state.peerConnection.close();
@@ -1396,11 +1549,11 @@
 
             document.getElementById('classroom-screen').classList.add('hidden');
             document.getElementById('lobby-screen').classList.remove('hidden');
-            showToast('Session ended. The same link is ready for your next class!', 'info');
+            showToast('Session ended. Your classroom link remains active for future sessions.', 'info');
         }
 
         // ---------------------------------------------------------------------
-        // 8. LIVE TEXT CHAT
+        // 8. LIVE CHAT SYSTEM
         // ---------------------------------------------------------------------
         function sendChatMessage(e) {
             e.preventDefault();
@@ -1408,7 +1561,7 @@
             const text = input.value.trim();
             if (!text) return;
 
-            appendChatMessage(`${state.userName} (You)`, text, false, true);
+            appendChatBubble(state.userName, text, true);
             if (state.signalingChannel) {
                 state.signalingChannel.postMessage({
                     type: 'chat',
@@ -1419,55 +1572,94 @@
             input.value = '';
         }
 
-        function appendChatMessage(sender, text, isSystem = false, isSelf = false) {
-            const container = document.getElementById('chat-messages');
+        function appendChatBubble(sender, text, isSelf) {
+            const box = document.getElementById('chat-messages');
             const div = document.createElement('div');
-            if (isSystem) {
-                div.className = 'text-[11px] text-center text-slate-400 py-1';
-                div.textContent = text;
-            } else {
-                div.className = `flex flex-col ${isSelf ? 'items-end' : 'items-start'}`;
-                div.innerHTML = `
-                    <span class="text-[10px] text-slate-400 mb-0.5 px-1">${sender}</span>
-                    <div class="px-3 py-2 rounded-2xl text-xs max-w-[85%] break-words ${isSelf ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-100'}">
-                        ${text.replace(/</g, '&lt;').replace(/>/g, '&gt;')}
-                    </div>
-                `;
-            }
-            container.appendChild(div);
-            container.scrollTop = container.scrollHeight;
+            div.className = `flex flex-col ${isSelf ? 'items-end' : 'items-start'}`;
+            div.innerHTML = `
+                <span class="text-[10px] text-slate-400 mb-0.5 px-1">${isSelf ? 'You' : sender}</span>
+                <div class="px-3 py-2 rounded-2xl max-w-[85%] text-xs break-words ${isSelf ? 'bg-indigo-600 text-white rounded-br-sm' : 'bg-slate-800 text-slate-100 rounded-bl-sm'}">
+                    ${escapeHTML(text)}
+                </div>
+            `;
+            box.appendChild(div);
+            box.scrollTop = box.scrollHeight;
+        }
+
+        function appendSystemChat(text) {
+            const box = document.getElementById('chat-messages');
+            const div = document.createElement('div');
+            div.className = 'text-center text-[11px] text-slate-400 py-1';
+            div.textContent = text;
+            box.appendChild(div);
+            box.scrollTop = box.scrollHeight;
+        }
+
+        function escapeHTML(str) {
+            return str.replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
         }
 
         // ---------------------------------------------------------------------
-        // 9. COLLABORATIVE SHARED WHITEBOARD
+        // 9. COLLABORATIVE SHARED WHITEBOARD (TEACHER & STUDENT INTERACT TOGETHER)
         // ---------------------------------------------------------------------
         let wbCanvas, wbCtx;
 
         function initWhiteboard() {
             wbCanvas = document.getElementById('whiteboard-canvas');
             wbCtx = wbCanvas.getContext('2d');
+            resizeWhiteboard();
+            window.addEventListener('resize', resizeWhiteboard);
 
-            function resizeCanvas() {
-                const wrapper = document.getElementById('canvas-wrapper');
-                if (!wrapper) return;
-                const saved = wbCanvas.width > 0 ? wbCtx.getImageData(0, 0, wbCanvas.width, wbCanvas.height) : null;
-                wbCanvas.width = wrapper.clientWidth;
-                wbCanvas.height = wrapper.clientHeight;
-                wbCtx.lineCap = 'round';
-                wbCtx.lineJoin = 'round';
-                if (saved) wbCtx.putImageData(saved, 0, 0);
-            }
-
-            resizeCanvas();
-            window.addEventListener('resize', resizeCanvas);
-
-            wbCanvas.addEventListener('pointerdown', onBoardPointerDown);
-            wbCanvas.addEventListener('pointermove', onBoardPointerMove);
-            wbCanvas.addEventListener('pointerup', onBoardPointerUp);
-            wbCanvas.addEventListener('pointerleave', onBoardPointerUp);
+            // Pointer Events (Works seamlessly for Mouse, Touch, and Stylus)
+            wbCanvas.addEventListener('pointerdown', handlePointerDown);
+            wbCanvas.addEventListener('pointermove', handlePointerMove);
+            wbCanvas.addEventListener('pointerup', handlePointerUp);
+            wbCanvas.addEventListener('pointerleave', handlePointerUp);
         }
 
-        function getBoardCoords(e) {
+        function resizeWhiteboard() {
+            const wrapper = document.getElementById('canvas-wrapper');
+            if (!wrapper || !wbCanvas) return;
+            const tempImg = wbCanvas.width > 0 ? wbCtx.getImageData(0, 0, wbCanvas.width, wbCanvas.height) : null;
+            wbCanvas.width = wrapper.clientWidth;
+            wbCanvas.height = wrapper.clientHeight;
+            wbCtx.lineCap = 'round';
+            wbCtx.lineJoin = 'round';
+            if (tempImg) {
+                wbCtx.putImageData(tempImg, 0, 0);
+            }
+        }
+
+        function setTool(tool) {
+            state.tool = tool;
+            document.querySelectorAll('[id^="tool-"]').forEach(btn => {
+                btn.classList.remove('bg-indigo-600', 'text-white');
+                btn.classList.add('text-slate-300');
+            });
+            const activeBtn = document.getElementById(`tool-${tool}`);
+            if (activeBtn) {
+                activeBtn.classList.add('bg-indigo-600', 'text-white');
+                activeBtn.classList.remove('text-slate-300');
+            }
+        }
+
+        function setColor(hex) {
+            state.color = hex;
+            if (state.tool === 'eraser') setTool('pen');
+            document.querySelectorAll('.color-btn').forEach(btn => {
+                btn.classList.remove('border-2', 'border-indigo-400', 'scale-110');
+                btn.classList.add('border', 'border-slate-600');
+                if (btn.dataset.color.toLowerCase() === hex.toLowerCase()) {
+                    btn.classList.add('border-2', 'border-indigo-400', 'scale-110');
+                }
+            });
+        }
+
+        function setStrokeSize(val) {
+            state.strokeSize = parseInt(val, 10);
+        }
+
+        function getCanvasCoords(e) {
             const rect = wbCanvas.getBoundingClientRect();
             return {
                 x: e.clientX - rect.left,
@@ -1475,50 +1667,11 @@
             };
         }
 
-        function setTool(tool) {
-            state.tool = tool;
-            ['pen', 'highlighter', 'line', 'rect', 'circle', 'text', 'eraser'].forEach(t => {
-                const btn = document.getElementById(`tool-${t}`);
-                if (!btn) return;
-                if (t === tool) {
-                    btn.className = 'p-2 rounded-xl bg-indigo-600 text-white transition';
-                } else {
-                    btn.className = 'p-2 rounded-xl text-slate-300 hover:bg-slate-800 transition';
-                }
-            });
-        }
-
-        function setColor(hex) {
-            state.color = hex;
-            document.querySelectorAll('.color-btn').forEach(btn => {
-                btn.classList.toggle('ring-2', btn.dataset.color === hex);
-                btn.classList.toggle('ring-indigo-400', btn.dataset.color === hex);
-            });
-        }
-
-        function setStrokeSize(val) {
-            state.strokeSize = parseInt(val, 10) || 4;
-        }
-
-        function onBoardPointerDown(e) {
-            const { x, y } = getBoardCoords(e);
+        function handlePointerDown(e) {
+            const { x, y } = getCanvasCoords(e);
 
             if (state.tool === 'text') {
-                const text = window.prompt('Enter text to place on whiteboard:');
-                if (text && text.trim()) {
-                    const fontSize = state.strokeSize * 4 + 10;
-                    drawTextOnBoard(wbCtx, text.trim(), x, y, state.color, fontSize);
-                    if (state.signalingChannel) {
-                        state.signalingChannel.postMessage({
-                            type: 'wb-text',
-                            sender: state.userName,
-                            text: text.trim(),
-                            x, y,
-                            color: state.color,
-                            size: fontSize
-                        });
-                    }
-                }
+                createFloatingTextInput(x, y);
                 return;
             }
 
@@ -1526,102 +1679,180 @@
             state.startX = x;
             state.startY = y;
             state.snapshotImageData = wbCtx.getImageData(0, 0, wbCanvas.width, wbCanvas.height);
-        }
-
-        function onBoardPointerMove(e) {
-            if (!state.isDrawing) return;
-            const { x, y } = getBoardCoords(e);
 
             if (state.tool === 'pen' || state.tool === 'highlighter' || state.tool === 'eraser') {
-                const boardEraseColor = state.theme === 'light' ? '#ffffff' : '#0f172a';
-                const strokeColor = state.tool === 'eraser' ? boardEraseColor : state.color;
-                const width = state.tool === 'highlighter' ? state.strokeSize * 3.5 : (state.tool === 'eraser' ? state.strokeSize * 4 : state.strokeSize);
-                const alpha = state.tool === 'highlighter' ? 0.35 : 1.0;
+                wbCtx.beginPath();
+                wbCtx.moveTo(x, y);
+            }
+        }
 
-                drawSegment(wbCtx, state.startX, state.startY, x, y, strokeColor, width, alpha);
+        function handlePointerMove(e) {
+            if (!state.isDrawing) return;
+            const { x, y } = getCanvasCoords(e);
 
-                if (state.signalingChannel) {
-                    state.signalingChannel.postMessage({
-                        type: 'wb-draw',
-                        sender: state.userName,
-                        x0: state.startX,
-                        y0: state.startY,
-                        x1: x,
-                        y1: y,
-                        color: strokeColor,
-                        width,
-                        alpha
-                    });
-                }
+            if (state.tool === 'pen' || state.tool === 'highlighter' || state.tool === 'eraser') {
+                const action = {
+                    tool: state.tool,
+                    color: state.color,
+                    size: state.strokeSize,
+                    x1: state.startX / wbCanvas.width,
+                    y1: state.startY / wbCanvas.height,
+                    x2: x / wbCanvas.width,
+                    y2: y / wbCanvas.height
+                };
+                renderActionOnCanvas(action);
+                broadcastBoardAction(action);
                 state.startX = x;
                 state.startY = y;
-            } else if (['line', 'rect', 'circle'].includes(state.tool)) {
+            } else {
+                // Shape preview
                 wbCtx.putImageData(state.snapshotImageData, 0, 0);
-                drawShape(wbCtx, state.tool, state.startX, state.startY, x, y, state.color, state.strokeSize);
-            }
-        }
-
-        function onBoardPointerUp(e) {
-            if (!state.isDrawing) return;
-            const { x, y } = getBoardCoords(e);
-
-            if (['line', 'rect', 'circle'].includes(state.tool) && state.signalingChannel) {
-                state.signalingChannel.postMessage({
-                    type: 'wb-shape',
-                    sender: state.userName,
-                    shape: state.tool,
-                    x0: state.startX,
-                    y0: state.startY,
-                    x1: x,
-                    y1: y,
+                renderActionOnCanvas({
+                    tool: state.tool,
                     color: state.color,
-                    width: state.strokeSize
+                    size: state.strokeSize,
+                    x1: state.startX / wbCanvas.width,
+                    y1: state.startY / wbCanvas.height,
+                    x2: x / wbCanvas.width,
+                    y2: y / wbCanvas.height
                 });
             }
+        }
+
+        function handlePointerUp(e) {
+            if (!state.isDrawing) return;
             state.isDrawing = false;
-        }
 
-        function drawSegment(ctx, x0, y0, x1, y1, color, width, alpha = 1.0) {
-            ctx.save();
-            ctx.globalAlpha = alpha;
-            ctx.strokeStyle = color;
-            ctx.lineWidth = width;
-            ctx.lineCap = 'round';
-            ctx.beginPath();
-            ctx.moveTo(x0, y0);
-            ctx.lineTo(x1, y1);
-            ctx.stroke();
-            ctx.restore();
-        }
-
-        function drawShape(ctx, shape, x0, y0, x1, y1, color, width) {
-            ctx.save();
-            ctx.strokeStyle = color;
-            ctx.lineWidth = width;
-            ctx.beginPath();
-            if (shape === 'line') {
-                ctx.moveTo(x0, y0);
-                ctx.lineTo(x1, y1);
-            } else if (shape === 'rect') {
-                ctx.strokeRect(x0, y0, x1 - x0, y1 - y0);
-            } else if (shape === 'circle') {
-                const radius = Math.hypot(x1 - x0, y1 - y0);
-                ctx.arc(x0, y0, radius, 0, Math.PI * 2);
+            if (state.tool === 'line' || state.tool === 'rect' || state.tool === 'circle') {
+                const { x, y } = getCanvasCoords(e);
+                wbCtx.putImageData(state.snapshotImageData, 0, 0);
+                const action = {
+                    tool: state.tool,
+                    color: state.color,
+                    size: state.strokeSize,
+                    x1: state.startX / wbCanvas.width,
+                    y1: state.startY / wbCanvas.height,
+                    x2: x / wbCanvas.width,
+                    y2: y / wbCanvas.height
+                };
+                renderActionOnCanvas(action);
+                broadcastBoardAction(action);
             }
-            ctx.stroke();
-            ctx.restore();
         }
 
-        function drawTextOnBoard(ctx, text, x, y, color, size) {
-            ctx.save();
-            ctx.fillStyle = color;
-            ctx.font = `600 ${size}px Inter, sans-serif`;
-            ctx.fillText(text, x, y);
-            ctx.restore();
+        function createFloatingTextInput(x, y) {
+            const wrapper = document.getElementById('canvas-wrapper');
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.placeholder = 'Type & press Enter...';
+            input.style.position = 'absolute';
+            input.style.left = `${x}px`;
+            input.style.top = `${y}px`;
+            input.style.color = state.color;
+            input.className = 'bg-slate-900/90 border border-indigo-500 rounded px-2 py-1 text-sm font-sans focus:outline-none z-20';
+            wrapper.appendChild(input);
+            input.focus();
+
+            const commitText = () => {
+                const val = input.value.trim();
+                if (val) {
+                    const action = {
+                        tool: 'text',
+                        color: state.color,
+                        size: state.strokeSize,
+                        x1: x / wbCanvas.width,
+                        y1: (y + 16) / wbCanvas.height,
+                        text: val
+                    };
+                    renderActionOnCanvas(action);
+                    broadcastBoardAction(action);
+                }
+                input.remove();
+            };
+
+            input.addEventListener('keydown', (ev) => {
+                if (ev.key === 'Enter') commitText();
+                if (ev.key === 'Escape') input.remove();
+            });
+            input.addEventListener('blur', commitText);
         }
 
-        function clearWhiteboard(broadcast = true) {
-            if (!wbCtx || !wbCanvas) return;
+        function renderActionOnCanvas(action) {
+            if (!wbCtx) return;
+            const x1 = action.x1 * wbCanvas.width;
+            const y1 = action.y1 * wbCanvas.height;
+            const x2 = (action.x2 || 0) * wbCanvas.width;
+            const y2 = (action.y2 || 0) * wbCanvas.height;
+
+            wbCtx.save();
+            wbCtx.lineCap = 'round';
+            wbCtx.lineJoin = 'round';
+
+            if (action.tool === 'eraser') {
+                wbCtx.globalCompositeOperation = 'destination-out';
+                wbCtx.lineWidth = action.size * 5;
+                wbCtx.beginPath();
+                wbCtx.moveTo(x1, y1);
+                wbCtx.lineTo(x2, y2);
+                wbCtx.stroke();
+            } else if (action.tool === 'highlighter') {
+                wbCtx.globalAlpha = 0.35;
+                wbCtx.strokeStyle = action.color;
+                wbCtx.lineWidth = action.size * 4;
+                wbCtx.beginPath();
+                wbCtx.moveTo(x1, y1);
+                wbCtx.lineTo(x2, y2);
+                wbCtx.stroke();
+            } else if (action.tool === 'pen') {
+                wbCtx.strokeStyle = action.color;
+                wbCtx.lineWidth = action.size;
+                wbCtx.beginPath();
+                wbCtx.moveTo(x1, y1);
+                wbCtx.lineTo(x2, y2);
+                wbCtx.stroke();
+            } else if (action.tool === 'line') {
+                wbCtx.strokeStyle = action.color;
+                wbCtx.lineWidth = action.size;
+                wbCtx.beginPath();
+                wbCtx.moveTo(x1, y1);
+                wbCtx.lineTo(x2, y2);
+                wbCtx.stroke();
+            } else if (action.tool === 'rect') {
+                wbCtx.strokeStyle = action.color;
+                wbCtx.lineWidth = action.size;
+                wbCtx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+            } else if (action.tool === 'circle') {
+                wbCtx.strokeStyle = action.color;
+                wbCtx.lineWidth = action.size;
+                const radius = Math.hypot(x2 - x1, y2 - y1);
+                wbCtx.beginPath();
+                wbCtx.arc(x1, y1, radius, 0, Math.PI * 2);
+                wbCtx.stroke();
+            } else if (action.tool === 'text') {
+                wbCtx.fillStyle = action.color;
+                wbCtx.font = `600 ${Math.max(16, action.size * 4)}px Inter, sans-serif`;
+                wbCtx.fillText(action.text, x1, y1);
+            }
+
+            wbCtx.restore();
+        }
+
+        function broadcastBoardAction(action) {
+            if (state.signalingChannel) {
+                state.signalingChannel.postMessage({
+                    type: 'wb-draw',
+                    sender: state.userName,
+                    action
+                });
+            }
+        }
+
+        function drawRemoteAction(action) {
+            renderActionOnCanvas(action);
+        }
+
+        function clearWhiteboard(broadcast = false) {
+            if (!wbCtx) return;
             wbCtx.clearRect(0, 0, wbCanvas.width, wbCanvas.height);
             if (broadcast && state.signalingChannel) {
                 state.signalingChannel.postMessage({
@@ -1632,20 +1863,19 @@
         }
 
         function downloadWhiteboard() {
-            if (!wbCanvas) return;
             const exportCanvas = document.createElement('canvas');
             exportCanvas.width = wbCanvas.width;
             exportCanvas.height = wbCanvas.height;
-            const exCtx = exportCanvas.getContext('2d');
-            exCtx.fillStyle = state.theme === 'light' ? '#ffffff' : '#0f172a';
-            exCtx.fillRect(0, 0, exportCanvas.width, exportCanvas.height);
-            exCtx.drawImage(wbCanvas, 0, 0);
+            const ctx = exportCanvas.getContext('2d');
+            ctx.fillStyle = state.theme === 'light' ? '#ffffff' : '#0f172a';
+            ctx.fillRect(0, 0, exportCanvas.width, exportCanvas.height);
+            ctx.drawImage(wbCanvas, 0, 0);
 
             const link = document.createElement('a');
             link.download = `${state.roomId}_whiteboard.png`;
             link.href = exportCanvas.toDataURL('image/png');
             link.click();
-            showToast('Whiteboard snapshot downloaded!', 'success');
+            showToast('Whiteboard snapshot saved!', 'success');
         }
     </script>
 </body>
