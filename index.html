@@ -1,0 +1,2324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NexusLearn | 3D WebRTC Classroom & Whiteboard</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Three.js for Amazing 3D Entry Graphics -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- PeerJS for Cross-Device / Cross-Browser Real WebRTC Signaling -->
+    <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Google Fonts: Inter & JetBrains Mono -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+    
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    },
+                    colors: {
+                        brand: {
+                            50: '#eef2ff',
+                            100: '#e0e7ff',
+                            500: '#6366f1',
+                            600: '#4f46e5',
+                            700: '#4338ca',
+                            900: '#1e1b4b',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        :root {
+            --bg-primary: #090d16;
+            --text-primary: #f8fafc;
+            --glass-bg: rgba(15, 23, 42, 0.72);
+            --glass-border: rgba(255, 255, 255, 0.1);
+            --board-bg: #0f172a;
+            --board-dot: #1e293b;
+        }
+        html.light-theme {
+            --bg-primary: #f1f5f9;
+            --text-primary: #0f172a;
+            --glass-bg: rgba(255, 255, 255, 0.85);
+            --glass-border: rgba(15, 23, 42, 0.12);
+            --board-bg: #ffffff;
+            --board-dot: #cbd5e1;
+        }
+        body, html {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            user-select: none;
+            transition: background-color 0.3s ease, color 0.3s ease;
+        }
+        /* Custom Scrollbar for Chat */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(15, 23, 42, 0.2);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(99, 102, 241, 0.5);
+            border-radius: 9999px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(99, 102, 241, 0.8);
+        }
+        .glass-panel {
+            background: var(--glass-bg);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid var(--glass-border);
+            transition: background 0.3s ease, border-color 0.3s ease;
+        }
+        /* Light Theme Adaptive Overrides */
+        html.light-theme #lobby-screen .bg-slate-900\/90,
+        html.light-theme #lobby-screen .bg-slate-900\/80,
+        html.light-theme #lobby-screen .bg-slate-900\/60,
+        html.light-theme #lobby-screen .bg-slate-950 {
+            background-color: rgba(241, 245, 249, 0.92) !important;
+            border-color: #cbd5e1 !important;
+            color: #0f172a !important;
+        }
+        html.light-theme #lobby-screen input {
+            color: #0f172a !important;
+        }
+        html.light-theme #lobby-screen .text-slate-400,
+        html.light-theme #lobby-screen .text-slate-300 {
+            color: #475569 !important;
+        }
+        html.light-theme #lobby-screen .text-white {
+            color: #0f172a !important;
+        }
+        html.light-theme #lobby-screen #btn-select-folder,
+        html.light-theme #lobby-screen button[onclick="copyInviteLink()"] {
+            background-color: #ffffff !important;
+            border-color: #94a3b8 !important;
+            color: #0f172a !important;
+            box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+        }
+        html.light-theme #lobby-screen #btn-select-folder:hover,
+        html.light-theme #lobby-screen button[onclick="copyInviteLink()"]:hover {
+            background-color: #e2e8f0 !important;
+        }
+        html.light-theme #lobby-screen #tab-teacher.bg-indigo-600,
+        html.light-theme #lobby-screen #tab-student.bg-indigo-600,
+        html.light-theme #lobby-screen button.bg-gradient-to-r {
+            color: #ffffff !important;
+        }
+        html.light-theme #lobby-screen .from-slate-900\/90 {
+            background: linear-gradient(to right, #eef2ff, #e0e7ff) !important;
+        }
+        html.light-theme #classroom-screen {
+            background-color: #f8fafc !important;
+        }
+        html.light-theme #classroom-screen header,
+        html.light-theme #classroom-screen footer,
+        html.light-theme #classroom-screen aside {
+            background-color: #ffffff !important;
+            border-color: #e2e8f0 !important;
+        }
+        html.light-theme #classroom-screen header .text-white,
+        html.light-theme #classroom-screen aside .text-slate-100,
+        html.light-theme #classroom-screen footer button {
+            color: #0f172a !important;
+        }
+        html.light-theme #classroom-screen footer button.bg-slate-800,
+        html.light-theme #classroom-screen header button.bg-slate-800,
+        html.light-theme #classroom-screen #tool-highlighter,
+        html.light-theme #classroom-screen #tool-line,
+        html.light-theme #classroom-screen #tool-rect,
+        html.light-theme #classroom-screen #tool-circle,
+        html.light-theme #classroom-screen #tool-text,
+        html.light-theme #classroom-screen #tool-eraser {
+            background-color: #f1f5f9 !important;
+            border-color: #cbd5e1 !important;
+            color: #334155 !important;
+        }
+        html.light-theme #classroom-screen footer button.bg-rose-600 {
+            background-color: #e11d48 !important;
+            color: #ffffff !important;
+        }
+        html.light-theme #classroom-screen #chat-messages .bg-slate-800 {
+            background-color: #e2e8f0 !important;
+            color: #0f172a !important;
+        }
+        html.light-theme #classroom-screen #chat-messages .bg-indigo-950\/40 {
+            background-color: #eef2ff !important;
+            color: #3730a3 !important;
+            border-color: #c7d2fe !important;
+        }
+        html.light-theme #classroom-screen form.bg-slate-950 {
+            background-color: #f8fafc !important;
+            border-color: #e2e8f0 !important;
+        }
+        html.light-theme #classroom-screen #chat-input {
+            background-color: #ffffff !important;
+            border-color: #cbd5e1 !important;
+            color: #0f172a !important;
+        }
+        html.light-theme #password-modal .glass-panel {
+            color: #0f172a !important;
+        }
+        html.light-theme #password-modal input,
+        html.light-theme #password-modal .bg-slate-900\/90 {
+            background-color: #f1f5f9 !important;
+            border-color: #cbd5e1 !important;
+            color: #0f172a !important;
+        }
+        .pulse-rec {
+            animation: pulseRed 1.5s infinite;
+        }
+        @keyframes pulseRed {
+            0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+            70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+        }
+        canvas {
+            touch-action: none;
+        }
+    </style>
+</head>
+<body class="h-screen w-screen flex flex-col relative">
+
+    <!-- Custom Notification Toast System (Replaces alert/confirm) -->
+    <div id="toast-container" class="fixed top-4 right-4 z-50 flex flex-col gap-2 pointer-events-none max-w-sm w-full px-4 sm:px-0"></div>
+
+    <!-- ===================================================================== -->
+    <!-- 1. 3D ENTRY LOBBY SCREEN                                              -->
+    <!-- ===================================================================== -->
+    <div id="lobby-screen" class="relative w-full h-full flex items-center justify-center overflow-y-auto py-8 px-4">
+        <!-- Three.js 3D Interactive Canvas Background -->
+        <div id="three-canvas-container" class="fixed inset-0 z-0"></div>
+
+        <!-- Lobby Foreground Card -->
+        <div class="relative z-10 w-full max-w-2xl glass-panel rounded-3xl p-6 sm:p-10 shadow-2xl border border-indigo-500/20 my-auto">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 pb-6 border-b border-slate-700/60">
+                <div class="flex items-center gap-3">
+                    <div class="w-12 h-12 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/30">
+                        <i data-lucide="sparkles" class="w-6 h-6 text-white"></i>
+                    </div>
+                    <div>
+                        <h1 class="text-2xl sm:text-3xl font-extrabold tracking-tight bg-gradient-to-r from-white via-indigo-200 to-indigo-400 bg-clip-text text-transparent" id="lobby-title">
+                            NexusLearn 3D
+                        </h1>
+                        <p class="text-xs sm:text-sm text-slate-400">Reusable WebRTC Classroom & Collaborative Board</p>
+                    </div>
+                </div>
+                <div class="flex items-center gap-2 self-start sm:self-auto">
+                    <button onclick="toggleTheme()" class="p-2 rounded-full bg-slate-900/80 hover:bg-slate-800 border border-slate-700/80 text-slate-300 transition flex items-center justify-center" title="Switch Light / Dark Theme">
+                        <i data-lucide="sun" class="w-4 h-4 theme-toggle-icon text-amber-400"></i>
+                    </button>
+                    <div class="flex items-center gap-2 bg-slate-900/80 px-3 py-1.5 rounded-full border border-slate-700/80">
+                        <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                        <span class="text-xs font-mono text-slate-300" id="connection-badge">WebRTC Ready</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Role Switcher Tabs (Teacher vs Student) -->
+            <div class="grid grid-cols-2 gap-2 p-1.5 bg-slate-900/90 rounded-2xl mb-6 border border-slate-800">
+                <button id="tab-teacher" onclick="switchRole('teacher')" class="py-2.5 px-4 rounded-xl text-sm font-semibold transition-all flex items-center justify-center gap-2 bg-indigo-600 text-white shadow-md">
+                    <i data-lucide="graduation-cap" class="w-4 h-4"></i>
+                    Host / Teacher
+                </button>
+                <button id="tab-student" onclick="switchRole('student')" class="py-2.5 px-4 rounded-xl text-sm font-semibold transition-all flex items-center justify-center gap-2 text-slate-400 hover:text-white">
+                    <i data-lucide="user-check" class="w-4 h-4"></i>
+                    Student Entry
+                </button>
+            </div>
+
+            <!-- Form Inputs -->
+            <div class="space-y-4">
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">Your Display Name</label>
+                        <input type="text" id="input-name" placeholder="e.g., Prof. Sarah / Alex" class="w-full bg-slate-900/90 border border-slate-700 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-indigo-500 transition">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">Reusable Classroom ID</label>
+                        <div class="flex gap-2">
+                            <input type="text" id="input-room" value="math-101-studio" class="w-full bg-slate-900/90 border border-slate-700 rounded-xl px-4 py-3 text-sm font-mono text-indigo-300 focus:outline-none focus:border-indigo-500 transition">
+                            <button onclick="copyInviteLink()" title="Copy Reusable Link" class="px-3.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl text-slate-300 transition flex items-center justify-center">
+                                <i data-lucide="link" class="w-4 h-4"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Teacher-Specific Settings: Per-Student Passwords & Auto-Record Folder -->
+                <div id="teacher-settings" class="space-y-4 pt-2">
+                    <div class="bg-slate-900/60 border border-slate-800 rounded-2xl p-4">
+                        <div class="flex items-center justify-between mb-2">
+                            <label class="text-xs font-semibold uppercase tracking-wider text-indigo-300 flex items-center gap-1.5">
+                                <i data-lucide="key-round" class="w-3.5 h-3.5"></i>
+                                Student Access Passwords (Reusable Link)
+                            </label>
+                            <span class="text-[11px] text-slate-400">One link, individual student keys</span>
+                        </div>
+                        <div class="flex gap-2 mb-3">
+                            <input type="text" id="new-student-label" placeholder="Student Name (e.g., Rohan)" class="w-1/2 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500">
+                            <input type="text" id="new-student-pass" placeholder="Passcode (e.g., 4829)" class="w-1/3 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs font-mono text-emerald-300 focus:outline-none focus:border-indigo-500">
+                            <button onclick="addStudentPassword()" class="w-1/6 bg-indigo-600 hover:bg-indigo-500 rounded-xl text-xs font-semibold text-white flex items-center justify-center transition">
+                                <i data-lucide="plus" class="w-4 h-4"></i>
+                            </button>
+                        </div>
+                        <div id="student-password-list" class="flex flex-wrap gap-2 max-h-24 overflow-y-auto">
+                            <!-- Populated dynamically -->
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Student-Specific Password Input -->
+                <div id="student-settings" class="hidden pt-2">
+                    <div class="bg-slate-900/60 border border-slate-800 rounded-2xl p-4">
+                        <label class="block text-xs font-semibold uppercase tracking-wider text-amber-300 mb-1.5 flex items-center gap-1.5">
+                            <i data-lucide="lock" class="w-3.5 h-3.5"></i>
+                            Your Personal Student Passcode
+                        </label>
+                        <input type="password" id="input-student-password" placeholder="Enter the password assigned to you by your teacher" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-sm font-mono text-white focus:outline-none focus:border-indigo-500 transition">
+                        <p class="text-[11px] text-slate-400 mt-1.5">Same classroom link works for every session using your assigned passcode.</p>
+                    </div>
+                </div>
+
+                <!-- 720p Auto-Recording Folder Selection (Teacher Only) -->
+                <div id="lobby-recording-section" class="bg-gradient-to-r from-slate-900/90 to-indigo-950/40 border border-indigo-500/30 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div class="flex items-start gap-3">
+                        <div class="p-2.5 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-400 mt-0.5">
+                            <i data-lucide="disc" class="w-5 h-5"></i>
+                        </div>
+                        <div>
+                            <div class="flex items-center gap-2">
+                                <h3 class="text-sm font-semibold text-white">Auto 720p Local Recording</h3>
+                                <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">1280×720 MP4</span>
+                            </div>
+                            <p id="folder-status-text" class="text-xs text-slate-400 mt-0.5">Select a local folder to auto-save session video & audio.</p>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-2 self-end sm:self-center">
+                        <button onclick="selectRecordingFolder()" id="btn-select-folder" class="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-600 text-xs font-semibold text-white transition flex items-center gap-1.5 whitespace-nowrap">
+                            <i data-lucide="folder-open" class="w-3.5 h-3.5 text-amber-400"></i>
+                            Select Folder
+                        </button>
+                        <label class="relative inline-flex items-center cursor-pointer" title="Toggle Auto-Record on Join">
+                            <input type="checkbox" id="toggle-autorecord" checked class="sr-only peer">
+                            <div class="w-10 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-rose-600"></div>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Enter Classroom CTA -->
+                <button onclick="enterClassroom()" class="w-full py-4 rounded-2xl bg-gradient-to-r from-indigo-600 via-indigo-500 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-bold text-base shadow-xl shadow-indigo-600/30 transition transform active:scale-[0.99] flex items-center justify-center gap-2.5 mt-2">
+                    <i data-lucide="video" class="w-5 h-5"></i>
+                    Enter Live Classroom
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===================================================================== -->
+    <!-- 2. ACTIVE CLASSROOM & COLLABORATIVE STUDIO SCREEN                     -->
+    <!-- ===================================================================== -->
+    <div id="classroom-screen" class="hidden w-full h-full flex flex-col bg-slate-950">
+        
+        <!-- Top Header Bar -->
+        <header class="h-14 px-4 bg-slate-900/90 border-b border-slate-800 flex items-center justify-between shrink-0 z-20">
+            <div class="flex items-center gap-3">
+                <div class="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center">
+                    <i data-lucide="sparkles" class="w-4 h-4 text-white"></i>
+                </div>
+                <div>
+                    <div class="flex items-center gap-2">
+                        <span id="header-room-name" class="font-bold text-sm text-white">math-101-studio</span>
+                        <span id="header-role-badge" class="text-[10px] font-semibold uppercase px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">Teacher</span>
+                    </div>
+                    <p class="text-[11px] text-slate-400 hidden sm:block">Reusable Session Link • End-to-End WebRTC</p>
+                </div>
+            </div>
+
+            <!-- Center Status: Recording Indicator & Timer -->
+            <div class="flex items-center gap-2 sm:gap-3">
+                <div id="rec-indicator" class="hidden items-center gap-2 px-3 py-1 rounded-full bg-rose-500/15 border border-rose-500/40 text-rose-400 text-xs font-mono">
+                    <span class="w-2.5 h-2.5 rounded-full bg-rose-500 pulse-rec"></span>
+                    <span>REC 720p</span>
+                    <span id="rec-timer">00:00</span>
+                </div>
+                <button onclick="toggleTheme()" class="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 flex items-center justify-center transition" title="Toggle Light / Dark Theme">
+                    <i data-lucide="sun" class="w-3.5 h-3.5 theme-toggle-icon text-amber-400"></i>
+                </button>
+                <button onclick="copyInviteLink()" class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-medium text-slate-200 flex items-center gap-1.5 transition">
+                    <i data-lucide="share-2" class="w-3.5 h-3.5 text-indigo-400"></i>
+                    <span class="hidden sm:inline">Copy Link</span>
+                </button>
+                <button onclick="openPasswordModal()" id="btn-manage-keys" class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-medium text-slate-200 flex items-center gap-1.5 transition">
+                    <i data-lucide="key" class="w-3.5 h-3.5 text-amber-400"></i>
+                    <span class="hidden md:inline">Student Keys</span>
+                </button>
+            </div>
+        </header>
+
+        <!-- Main Workspace Grid: Collaborative Whiteboard + Video & Chat Sidebar -->
+        <main class="flex-1 flex flex-col lg:flex-row overflow-hidden relative">
+            
+            <!-- LEFT / MAIN AREA: Interactive Shared Whiteboard -->
+            <section id="whiteboard-section" class="flex-1 flex flex-col bg-slate-900 relative overflow-hidden">
+                <!-- Whiteboard Floating Toolbar -->
+                <div class="absolute top-3 left-1/2 -translate-x-1/2 z-10 glass-panel px-3 py-2 rounded-2xl shadow-xl flex items-center gap-1.5 sm:gap-2 border border-slate-700/80 max-w-[95vw] overflow-x-auto">
+                    <button onclick="setTool('pen')" id="tool-pen" class="p-2 rounded-xl bg-indigo-600 text-white transition" title="Pen">
+                        <i data-lucide="pen-tool" class="w-4 h-4"></i>
+                    </button>
+                    <button onclick="setTool('highlighter')" id="tool-highlighter" class="p-2 rounded-xl text-slate-300 hover:bg-slate-800 transition" title="Highlighter">
+                        <i data-lucide="highlighter" class="w-4 h-4"></i>
+                    </button>
+                    <button onclick="setTool('line')" id="tool-line" class="p-2 rounded-xl text-slate-300 hover:bg-slate-800 transition" title="Line">
+                        <i data-lucide="minus" class="w-4 h-4"></i>
+                    </button>
+                    <button onclick="setTool('rect')" id="tool-rect" class="p-2 rounded-xl text-slate-300 hover:bg-slate-800 transition" title="Rectangle">
+                        <i data-lucide="square" class="w-4 h-4"></i>
+                    </button>
+                    <button onclick="setTool('circle')" id="tool-circle" class="p-2 rounded-xl text-slate-300 hover:bg-slate-800 transition" title="Circle">
+                        <i data-lucide="circle" class="w-4 h-4"></i>
+                    </button>
+                    <button onclick="setTool('text')" id="tool-text" class="p-2 rounded-xl text-slate-300 hover:bg-slate-800 transition" title="Add Text">
+                        <i data-lucide="type" class="w-4 h-4"></i>
+                    </button>
+                    <button onclick="setTool('eraser')" id="tool-eraser" class="p-2 rounded-xl text-slate-300 hover:bg-slate-800 transition" title="Eraser">
+                        <i data-lucide="eraser" class="w-4 h-4"></i>
+                    </button>
+
+                    <div class="h-5 w-[1px] bg-slate-700 mx-1"></div>
+
+                    <!-- Color Swatches -->
+                    <button onclick="setColor('#ffffff')" id="swatch-primary" class="w-5 h-5 rounded-full bg-white border-2 border-indigo-400 shrink-0 color-btn" data-color="#ffffff"></button>
+                    <button onclick="setColor('#38bdf8')" class="w-5 h-5 rounded-full bg-sky-400 border border-slate-600 shrink-0 color-btn" data-color="#38bdf8"></button>
+                    <button onclick="setColor('#4ade80')" class="w-5 h-5 rounded-full bg-emerald-400 border border-slate-600 shrink-0 color-btn" data-color="#4ade80"></button>
+                    <button onclick="setColor('#facc15')" class="w-5 h-5 rounded-full bg-yellow-400 border border-slate-600 shrink-0 color-btn" data-color="#facc15"></button>
+                    <button onclick="setColor('#f43f5e')" class="w-5 h-5 rounded-full bg-rose-500 border border-slate-600 shrink-0 color-btn" data-color="#f43f5e"></button>
+
+                    <div class="h-5 w-[1px] bg-slate-700 mx-1"></div>
+
+                    <!-- Stroke Size -->
+                    <select id="stroke-size" onchange="setStrokeSize(this.value)" class="bg-slate-800 text-xs text-slate-200 rounded-lg px-2 py-1 border border-slate-700 focus:outline-none">
+                        <option value="2">Thin</option>
+                        <option value="4" selected>Med</option>
+                        <option value="8">Thick</option>
+                    </select>
+
+                    <button onclick="clearWhiteboard(true)" class="p-2 rounded-xl text-rose-400 hover:bg-rose-500/20 transition" title="Clear Board">
+                        <i data-lucide="trash-2" class="w-4 h-4"></i>
+                    </button>
+                    <button onclick="downloadWhiteboard()" class="p-2 rounded-xl text-emerald-400 hover:bg-emerald-500/20 transition" title="Save Board Snapshot">
+                        <i data-lucide="download" class="w-4 h-4"></i>
+                    </button>
+                </div>
+
+                <!-- Live Collaboration Indicator Pill -->
+                <div class="absolute bottom-3 left-3 z-10 bg-slate-950/80 backdrop-blur px-3 py-1.5 rounded-xl border border-slate-800 flex items-center gap-2 text-xs text-slate-300">
+                    <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+                    <span>Shared Whiteboard Active — Teacher & Student Synced</span>
+                </div>
+
+                <!-- Interactive Canvas Container -->
+                <div id="canvas-wrapper" class="w-full h-full relative" style="background-color: var(--board-bg); background-image: radial-gradient(var(--board-dot) 1.5px, transparent 1.5px); background-size: 24px 24px;">
+                    <canvas id="whiteboard-canvas" class="w-full h-full block cursor-crosshair"></canvas>
+                </div>
+            </section>
+
+            <!-- RIGHT SIDEBAR: Live Video Feeds + Live Text Chat -->
+            <aside id="sidebar-panel" class="w-full lg:w-96 bg-slate-900/95 border-t lg:border-t-0 lg:border-l border-slate-800 flex flex-col h-[48vh] lg:h-full shrink-0 z-10">
+                
+                <!-- Video Streams Grid -->
+                <div class="p-3 grid grid-cols-2 lg:grid-cols-1 gap-2.5 border-b border-slate-800 shrink-0 bg-slate-950/60">
+                    <!-- Local Video Tile -->
+                    <div class="relative rounded-2xl overflow-hidden bg-slate-900 border border-slate-700/80 aspect-video shadow-lg group">
+                        <video id="local-video" autoplay muted playsinline webkit-playsinline class="w-full h-full object-cover transform -scale-x-100"></video>
+                        <div id="local-video-fallback" class="hidden absolute inset-0 bg-slate-900 flex flex-col items-center justify-center">
+                            <div class="w-12 h-12 rounded-full bg-indigo-600/30 border border-indigo-500 flex items-center justify-center text-indigo-300 font-bold text-lg" id="local-avatar-initials">YOU</div>
+                        </div>
+                        <div class="absolute bottom-2 left-2 px-2.5 py-1 rounded-lg bg-slate-950/80 backdrop-blur text-[11px] font-medium text-white flex items-center gap-1.5">
+                            <span id="local-mic-dot" class="w-2 h-2 rounded-full bg-emerald-400"></span>
+                            <span id="local-name-tag">You</span>
+                        </div>
+                    </div>
+
+                    <!-- Remote Participant Video Tile -->
+                    <div class="relative rounded-2xl overflow-hidden bg-slate-900 border border-slate-700/80 aspect-video shadow-lg">
+                        <video id="remote-video" autoplay playsinline webkit-playsinline class="w-full h-full object-cover hidden"></video>
+                        <div id="remote-cam-off" class="hidden absolute inset-0 bg-slate-900 flex flex-col items-center justify-center">
+                            <div id="remote-avatar-initials" class="w-14 h-14 rounded-full bg-indigo-500/20 border border-indigo-400/40 flex items-center justify-center text-xl font-bold text-indigo-300">ST</div>
+                        </div>
+                        <button id="btn-unmute-remote" onclick="unlockRemoteAudio()" class="hidden absolute top-2 right-2 z-10 px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-semibold shadow-lg flex items-center gap-1">
+                            <i data-lucide="volume-2" class="w-3.5 h-3.5"></i>
+                            <span>Enable Audio</span>
+                        </button>
+                        <div id="remote-placeholder" class="absolute inset-0 bg-slate-900/90 flex flex-col items-center justify-center p-3 text-center">
+                            <div class="w-10 h-10 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center mb-1.5">
+                                <i data-lucide="users" class="w-5 h-5 text-slate-400"></i>
+                            </div>
+                            <p id="remote-status-text" class="text-xs font-medium text-slate-300">Waiting for participant...</p>
+                            <p class="text-[10px] text-slate-500 mt-0.5">Share your reusable link to connect</p>
+                        </div>
+                        <div id="remote-name-badge" class="hidden absolute bottom-2 left-2 px-2.5 py-1 rounded-lg bg-slate-950/80 backdrop-blur text-[11px] font-medium text-white flex items-center gap-1.5">
+                            <span id="remote-mic-dot" class="w-2 h-2 rounded-full bg-emerald-400"></span>
+                            <span id="remote-name-tag">Participant</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Live Chat Header -->
+                <div class="px-4 py-2 bg-slate-900 border-b border-slate-800 flex items-center justify-between shrink-0">
+                    <span class="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                        <i data-lucide="message-square" class="w-3.5 h-3.5 text-indigo-400"></i>
+                        Live Session Chat
+                    </span>
+                    <span class="text-[10px] text-emerald-400 font-mono" id="peer-count-badge">1 Online (Connecting...)</span>
+                </div>
+
+                <!-- Chat Messages Feed -->
+                <div id="chat-messages" class="flex-1 overflow-y-auto p-3 space-y-2.5 text-sm">
+                    <div class="bg-indigo-950/40 border border-indigo-500/20 rounded-xl p-2.5 text-xs text-indigo-200">
+                        Welcome to the classroom! Messages, whiteboard strokes, and video sync in real time.
+                    </div>
+                </div>
+
+                <!-- Chat Input Form -->
+                <form onsubmit="sendChatMessage(event)" class="p-2.5 bg-slate-950 border-t border-slate-800 flex gap-2 shrink-0">
+                    <input type="text" id="chat-input" placeholder="Type a message..." autocomplete="off" class="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500">
+                    <button type="submit" class="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-xl text-white transition flex items-center justify-center">
+                        <i data-lucide="send" class="w-3.5 h-3.5"></i>
+                    </button>
+                </form>
+            </aside>
+        </main>
+
+        <!-- Bottom Zoom-Style Control Dock -->
+        <footer class="h-16 px-4 bg-slate-950 border-t border-slate-800/90 flex items-center justify-center gap-2 sm:gap-4 shrink-0 z-20">
+            <button onclick="toggleMic()" id="btn-mic" class="p-3 sm:px-4 sm:py-2.5 rounded-2xl bg-slate-800 hover:bg-slate-700 text-white transition flex items-center gap-2 text-xs font-semibold">
+                <i data-lucide="mic" id="icon-mic" class="w-4 h-4 text-emerald-400"></i>
+                <span class="hidden sm:inline">Mute</span>
+            </button>
+
+            <button onclick="toggleCamera()" id="btn-cam" class="p-3 sm:px-4 sm:py-2.5 rounded-2xl bg-slate-800 hover:bg-slate-700 text-white transition flex items-center gap-2 text-xs font-semibold">
+                <i data-lucide="video" id="icon-cam" class="w-4 h-4 text-emerald-400"></i>
+                <span class="hidden sm:inline">Stop Video</span>
+            </button>
+
+            <button onclick="toggleScreenShare()" id="btn-share" class="p-3 sm:px-4 sm:py-2.5 rounded-2xl bg-slate-800 hover:bg-slate-700 text-white transition flex items-center gap-2 text-xs font-semibold">
+                <i data-lucide="monitor-up" class="w-4 h-4 text-sky-400"></i>
+                <span class="hidden sm:inline">Share Screen</span>
+            </button>
+
+            <button onclick="toggleRecording()" id="btn-record" class="p-3 sm:px-4 sm:py-2.5 rounded-2xl bg-slate-800 hover:bg-slate-700 text-white transition flex items-center gap-2 text-xs font-semibold border border-slate-700">
+                <i data-lucide="disc" id="icon-record" class="w-4 h-4 text-rose-400"></i>
+                <span id="label-record" class="hidden sm:inline">Start 720p Rec</span>
+            </button>
+
+            <button onclick="leaveClassroom()" class="p-3 sm:px-5 sm:py-2.5 rounded-2xl bg-rose-600 hover:bg-rose-500 text-white transition flex items-center gap-2 text-xs font-bold shadow-lg shadow-rose-600/20 ml-2">
+                <i data-lucide="phone-off" class="w-4 h-4"></i>
+                <span>End Session</span>
+            </button>
+        </footer>
+    </div>
+
+    <!-- ===================================================================== -->
+    <!-- 3. MODAL: MANAGE STUDENT PASSWORDS (REUSABLE LINK KEYS)               -->
+    <!-- ===================================================================== -->
+    <div id="password-modal" class="hidden fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+        <div class="glass-panel w-full max-w-md rounded-3xl p-6 border border-slate-700 shadow-2xl">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-lg font-bold text-white flex items-center gap-2">
+                    <i data-lucide="key-round" class="w-5 h-5 text-amber-400"></i>
+                    Student Passcodes
+                </h3>
+                <button onclick="closePasswordModal()" class="p-1.5 rounded-lg bg-slate-800 text-slate-400 hover:text-white">
+                    <i data-lucide="x" class="w-4 h-4"></i>
+                </button>
+            </div>
+            <p class="text-xs text-slate-400 mb-4">
+                Share the single reusable classroom link. Each student enters with their assigned password below. Reuse this link across all future sessions!
+            </p>
+            <div class="flex gap-2 mb-4">
+                <input type="text" id="modal-student-label" placeholder="Student Name" class="w-1/2 bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white">
+                <input type="text" id="modal-student-pass" placeholder="Passcode" class="w-1/3 bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs font-mono text-emerald-300">
+                <button onclick="addStudentPasswordFromModal()" class="w-1/6 bg-indigo-600 hover:bg-indigo-500 rounded-xl text-xs font-bold text-white flex items-center justify-center">Add</button>
+            </div>
+            <div id="modal-password-list" class="space-y-2 max-h-48 overflow-y-auto mb-4"></div>
+            <button onclick="closePasswordModal()" class="w-full py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-white">Done</button>
+        </div>
+    </div>
+
+    <!-- ===================================================================== -->
+    <!-- JAVASCRIPT LOGIC: 3D GRAPHICS, WEBRTC, WHITEBOARD, 720P RECORDER      -->
+    <!-- ===================================================================== -->
+    <script>
+        // Initialize Lucide Icons
+        lucide.createIcons();
+
+        // ---------------------------------------------------------------------
+        // 1. APPLICATION STATE
+        // ---------------------------------------------------------------------
+        const state = {
+            theme: localStorage.getItem('nexuslearn_theme') || 'dark',
+            role: 'teacher', // 'teacher' | 'student'
+            userName: '',
+            roomId: 'math-101-studio',
+            studentPasswords: [
+                { name: 'Rohan', pass: '1010' },
+                { name: 'Ananya', pass: '2020' },
+                { name: 'Liam', pass: '3030' }
+            ],
+            localStream: null,
+            remoteStream: null,
+            screenStream: null,
+            isMicOn: true,
+            isCamOn: true,
+            isSharingScreen: false,
+            // Recording State
+            folderHandle: null,
+            isRecording: false,
+            mediaRecorder: null,
+            recordedChunks: [],
+            recStartTime: null,
+            recInterval: null,
+            // WebRTC & Signaling
+            peerConnection: null,
+            peerInstance: null,
+            dataConn: null,
+            mediaCall: null,
+            signalingChannel: null,
+            presenceInterval: null,
+            peerConnected: false,
+            // Whiteboard State
+            tool: 'pen',
+            color: '#ffffff',
+            strokeSize: 4,
+            isDrawing: false,
+            startX: 0,
+            startY: 0,
+            snapshotImageData: null
+        };
+
+        // ---------------------------------------------------------------------
+        // 2. THEME SWITCHER (LIGHT & DARK MODE)
+        // ---------------------------------------------------------------------
+        let threeScene = null;
+
+        function applyTheme(theme) {
+            state.theme = theme;
+            localStorage.setItem('nexuslearn_theme', theme);
+            const isLight = theme === 'light';
+            document.documentElement.classList.toggle('light-theme', isLight);
+
+            const titleEl = document.getElementById('lobby-title');
+            if (titleEl) {
+                titleEl.className = isLight
+                    ? 'text-2xl sm:text-3xl font-extrabold tracking-tight bg-gradient-to-r from-indigo-700 via-indigo-600 to-purple-600 bg-clip-text text-transparent'
+                    : 'text-2xl sm:text-3xl font-extrabold tracking-tight bg-gradient-to-r from-white via-indigo-200 to-indigo-400 bg-clip-text text-transparent';
+            }
+
+            const primarySwatch = document.getElementById('swatch-primary');
+            if (primarySwatch) {
+                const newPrimary = isLight ? '#0f172a' : '#ffffff';
+                primarySwatch.dataset.color = newPrimary;
+                primarySwatch.style.backgroundColor = newPrimary;
+                primarySwatch.setAttribute('onclick', `setColor('${newPrimary}')`);
+                if (state.color === '#ffffff' || state.color === '#0f172a') {
+                    setColor(newPrimary);
+                }
+            }
+
+            document.querySelectorAll('.theme-toggle-icon').forEach(icon => {
+                icon.setAttribute('data-lucide', isLight ? 'moon' : 'sun');
+                icon.classList.toggle('text-amber-400', !isLight);
+                icon.classList.toggle('text-indigo-600', isLight);
+            });
+            lucide.createIcons();
+
+            if (threeScene && threeScene.fog) {
+                threeScene.fog.color.setHex(isLight ? 0xf1f5f9 : 0x090d16);
+            }
+        }
+
+        function toggleTheme() {
+            applyTheme(state.theme === 'dark' ? 'light' : 'dark');
+            showToast(`Switched to ${state.theme === 'light' ? 'Light' : 'Dark'} theme`, 'info');
+        }
+
+        // ---------------------------------------------------------------------
+        // 3. CUSTOM TOAST NOTIFICATIONS
+        // ---------------------------------------------------------------------
+        function showToast(message, type = 'info') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            const colors = {
+                info: 'border-indigo-500/50 bg-slate-900/95 text-slate-100',
+                success: 'border-emerald-500/50 bg-slate-900/95 text-emerald-300',
+                error: 'border-rose-500/50 bg-slate-900/95 text-rose-300',
+                warning: 'border-amber-500/50 bg-slate-900/95 text-amber-300'
+            };
+            toast.className = `pointer-events-auto glass-panel border ${colors[type]} px-4 py-3 rounded-2xl shadow-xl text-xs sm:text-sm font-medium flex items-center gap-2.5 transition-all duration-300 transform translate-y-0 opacity-100`;
+            toast.innerHTML = `<span>${message}</span>`;
+            container.appendChild(toast);
+            setTimeout(() => {
+                toast.classList.add('opacity-0', '-translate-y-2');
+                setTimeout(() => toast.remove(), 300);
+            }, 3500);
+        }
+
+        // ---------------------------------------------------------------------
+        // 4. THREE.JS 3D ENTRY GRAPHICS (INTERACTIVE HOLOGRAPHIC CLASSROOM)
+        // ---------------------------------------------------------------------
+        function initThreeScene() {
+            const container = document.getElementById('three-canvas-container');
+            if (!container || typeof THREE === 'undefined') return;
+
+            const scene = new THREE.Scene();
+            threeScene = scene;
+            scene.fog = new THREE.FogExp2(state.theme === 'light' ? 0xf1f5f9 : 0x090d16, 0.035);
+
+            const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.z = 16;
+
+            const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            container.appendChild(renderer.domElement);
+
+            // Lighting
+            const ambientLight = new THREE.AmbientLight(0x6366f1, 0.8);
+            scene.add(ambientLight);
+
+            const pointLight1 = new THREE.PointLight(0x818cf8, 2.5, 50);
+            pointLight1.position.set(10, 10, 10);
+            scene.add(pointLight1);
+
+            const pointLight2 = new THREE.PointLight(0xc084fc, 2.2, 50);
+            pointLight2.position.set(-10, -8, 8);
+            scene.add(pointLight2);
+
+            // Central Knowledge Core (Icosahedron + Wireframe Outer Shell)
+            const coreGroup = new THREE.Group();
+            const innerGeo = new THREE.IcosahedronGeometry(3.2, 1);
+            const innerMat = new THREE.MeshStandardMaterial({
+                color: 0x4f46e5,
+                roughness: 0.2,
+                metalness: 0.8,
+                flatShading: true
+            });
+            const innerMesh = new THREE.Mesh(innerGeo, innerMat);
+            coreGroup.add(innerMesh);
+
+            const wireGeo = new THREE.IcosahedronGeometry(4.1, 1);
+            const wireMat = new THREE.MeshBasicMaterial({
+                color: 0xa5b4fc,
+                wireframe: true,
+                transparent: true,
+                opacity: 0.28
+            });
+            const wireMesh = new THREE.Mesh(wireGeo, wireMat);
+            coreGroup.add(wireMesh);
+
+            // Orbiting Knowledge Rings
+            const ringGeo = new THREE.TorusGeometry(6.2, 0.06, 16, 100);
+            const ringMat = new THREE.MeshBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.45 });
+            const ring1 = new THREE.Mesh(ringGeo, ringMat);
+            ring1.rotation.x = Math.PI / 3;
+            coreGroup.add(ring1);
+
+            const ring2 = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ color: 0xc084fc, transparent: true, opacity: 0.35 }));
+            ring2.rotation.y = Math.PI / 4;
+            ring2.rotation.x = -Math.PI / 4;
+            coreGroup.add(ring2);
+
+            scene.add(coreGroup);
+
+            // Floating Classroom Geometric Nodes
+            const nodes = [];
+            const nodeGeo = new THREE.OctahedronGeometry(0.35, 0);
+            for (let i = 0; i < 45; i++) {
+                const mat = new THREE.MeshStandardMaterial({
+                    color: i % 2 === 0 ? 0x38bdf8 : 0xa855f7,
+                    emissive: 0x1e1b4b,
+                    roughness: 0.3
+                });
+                const mesh = new THREE.Mesh(nodeGeo, mat);
+                mesh.position.set(
+                    (Math.random() - 0.5) * 32,
+                    (Math.random() - 0.5) * 22,
+                    (Math.random() - 0.5) * 18 - 4
+                );
+                mesh.userData = {
+                    speedY: (Math.random() - 0.5) * 0.015,
+                    speedRot: (Math.random() - 0.5) * 0.03
+                };
+                scene.add(mesh);
+                nodes.push(mesh);
+            }
+
+            // Mouse / Touch Parallax
+            let targetX = 0, targetY = 0;
+            window.addEventListener('pointermove', (e) => {
+                targetX = (e.clientX / window.innerWidth - 0.5) * 2;
+                targetY = (e.clientY / window.innerHeight - 0.5) * 2;
+            });
+
+            // Resize Handler
+            window.addEventListener('resize', () => {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            });
+
+            // Animation Loop
+            function animate() {
+                requestAnimationFrame(animate);
+                coreGroup.rotation.y += 0.004;
+                coreGroup.rotation.x += 0.002;
+                ring1.rotation.z += 0.008;
+                ring2.rotation.z -= 0.006;
+
+                nodes.forEach(n => {
+                    n.position.y += n.userData.speedY;
+                    n.rotation.x += n.userData.speedRot;
+                    n.rotation.y += n.userData.speedRot;
+                    if (n.position.y > 11) n.position.y = -11;
+                    if (n.position.y < -11) n.position.y = 11;
+                });
+
+                camera.position.x += (targetX * 2.2 - camera.position.x) * 0.05;
+                camera.position.y += (-targetY * 1.5 - camera.position.y) * 0.05;
+                camera.lookAt(scene.position);
+
+                renderer.render(scene, camera);
+            }
+            animate();
+        }
+
+        // ---------------------------------------------------------------------
+        // 5. LOBBY & PASSCODE MANAGEMENT (REUSABLE LINK + PER-STUDENT KEYS)
+        // ---------------------------------------------------------------------
+        function switchRole(role) {
+            state.role = role;
+            const tabT = document.getElementById('tab-teacher');
+            const tabS = document.getElementById('tab-student');
+            const setT = document.getElementById('teacher-settings');
+            const setS = document.getElementById('student-settings');
+            const recSection = document.getElementById('lobby-recording-section');
+
+            if (role === 'teacher') {
+                tabT.className = 'py-2.5 px-4 rounded-xl text-sm font-semibold transition-all flex items-center justify-center gap-2 bg-indigo-600 text-white shadow-md';
+                tabS.className = 'py-2.5 px-4 rounded-xl text-sm font-semibold transition-all flex items-center justify-center gap-2 text-slate-400 hover:text-white';
+                setT.classList.remove('hidden');
+                setS.classList.add('hidden');
+                if (recSection) recSection.classList.remove('hidden');
+            } else {
+                tabS.className = 'py-2.5 px-4 rounded-xl text-sm font-semibold transition-all flex items-center justify-center gap-2 bg-indigo-600 text-white shadow-md';
+                tabT.className = 'py-2.5 px-4 rounded-xl text-sm font-semibold transition-all flex items-center justify-center gap-2 text-slate-400 hover:text-white';
+                setS.classList.remove('hidden');
+                setT.classList.add('hidden');
+                if (recSection) recSection.classList.add('hidden');
+            }
+        }
+
+        function getCurrentRoomKeyStorage() {
+            const roomVal = (document.getElementById('input-room')?.value || state.roomId || 'math-101-studio').trim();
+            return `nexuslearn_keys_${roomVal}`;
+        }
+
+        function persistStudentPasswords() {
+            try {
+                localStorage.setItem(getCurrentRoomKeyStorage(), JSON.stringify(state.studentPasswords));
+            } catch (e) {}
+        }
+
+        function loadStudentPasswordsForRoom(roomId) {
+            try {
+                const raw = localStorage.getItem(`nexuslearn_keys_${roomId}`);
+                if (raw) {
+                    const parsed = JSON.parse(raw);
+                    if (Array.isArray(parsed) && parsed.length > 0) {
+                        state.studentPasswords = parsed;
+                    }
+                }
+            } catch (e) {}
+        }
+
+        function renderStudentPasswords() {
+            const list = document.getElementById('student-password-list');
+            const modalList = document.getElementById('modal-password-list');
+            if (list) {
+                list.innerHTML = state.studentPasswords.map((item, idx) => `
+                    <div class="flex items-center gap-1.5 bg-slate-950 border border-slate-700/80 px-2.5 py-1 rounded-lg text-xs">
+                        <span class="text-slate-200 font-medium">${item.name}:</span>
+                        <span class="font-mono text-emerald-400">${item.pass}</span>
+                        <button onclick="removeStudentPassword(${idx})" class="text-slate-500 hover:text-rose-400 ml-1">&times;</button>
+                    </div>
+                `).join('');
+            }
+            if (modalList) {
+                modalList.innerHTML = state.studentPasswords.map((item, idx) => `
+                    <div class="flex items-center justify-between bg-slate-900/90 border border-slate-800 px-3 py-2 rounded-xl text-xs">
+                        <div>
+                            <span class="font-semibold text-white">${item.name}</span>
+                            <span class="ml-2 font-mono text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded">${item.pass}</span>
+                        </div>
+                        <button onclick="removeStudentPassword(${idx})" class="text-rose-400 hover:text-rose-300 font-medium">Revoke</button>
+                    </div>
+                `).join('');
+            }
+        }
+
+        function addStudentPassword() {
+            const nameEl = document.getElementById('new-student-label');
+            const passEl = document.getElementById('new-student-pass');
+            const name = nameEl.value.trim();
+            const pass = passEl.value.trim();
+            if (!name || !pass) {
+                showToast('Enter both student name and passcode.', 'warning');
+                return;
+            }
+            state.studentPasswords.push({ name, pass });
+            nameEl.value = '';
+            passEl.value = '';
+            persistStudentPasswords();
+            renderStudentPasswords();
+            syncPasscodesToPeers();
+            showToast(`Added passcode for ${name}`, 'success');
+        }
+
+        function addStudentPasswordFromModal() {
+            const nameEl = document.getElementById('modal-student-label');
+            const passEl = document.getElementById('modal-student-pass');
+            const name = nameEl.value.trim();
+            const pass = passEl.value.trim();
+            if (!name || !pass) {
+                showToast('Enter both student name and passcode.', 'warning');
+                return;
+            }
+            state.studentPasswords.push({ name, pass });
+            nameEl.value = '';
+            passEl.value = '';
+            persistStudentPasswords();
+            renderStudentPasswords();
+            syncPasscodesToPeers();
+            showToast(`Passcode assigned to ${name}`, 'success');
+        }
+
+        function removeStudentPassword(idx) {
+            state.studentPasswords.splice(idx, 1);
+            persistStudentPasswords();
+            renderStudentPasswords();
+            syncPasscodesToPeers();
+        }
+
+        function openPasswordModal() {
+            renderStudentPasswords();
+            document.getElementById('password-modal').classList.remove('hidden');
+        }
+
+        function closePasswordModal() {
+            document.getElementById('password-modal').classList.add('hidden');
+        }
+
+        function copyInviteLink() {
+            const roomVal = document.getElementById('input-room')?.value.trim() || state.roomId;
+            state.roomId = roomVal;
+            persistStudentPasswords();
+            const url = new URL(window.location.href);
+            url.searchParams.set('room', roomVal);
+            url.searchParams.set('role', 'student');
+            try {
+                const encodedKeys = btoa(encodeURIComponent(JSON.stringify(state.studentPasswords)));
+                url.searchParams.set('k', encodedKeys);
+            } catch (e) {}
+
+            // Fallback clipboard copy compatible with all iframe environments
+            const tempInput = document.createElement('input');
+            tempInput.value = url.toString();
+            document.body.appendChild(tempInput);
+            tempInput.select();
+            document.execCommand('copy');
+            document.body.removeChild(tempInput);
+
+            showToast('Reusable classroom link copied! Share it with your students.', 'success');
+        }
+
+        // Check URL parameters on load (if student opens shared reusable link)
+        function parseURLParams() {
+            const params = new URLSearchParams(window.location.search);
+            const room = params.get('room');
+            const role = params.get('role');
+            const encodedKeys = params.get('k');
+
+            if (room) {
+                document.getElementById('input-room').value = room;
+                state.roomId = room;
+                loadStudentPasswordsForRoom(room);
+            } else {
+                loadStudentPasswordsForRoom(state.roomId);
+            }
+
+            if (encodedKeys) {
+                try {
+                    const decoded = JSON.parse(decodeURIComponent(atob(encodedKeys)));
+                    if (Array.isArray(decoded) && decoded.length > 0) {
+                        state.studentPasswords = decoded;
+                        persistStudentPasswords();
+                    }
+                } catch (e) {}
+            }
+
+            if (role === 'student') {
+                switchRole('student');
+            }
+        }
+
+        // ---------------------------------------------------------------------
+        // 6. AUTO 720p (1280x720) LOCAL FOLDER RECORDING ENGINE
+        // ---------------------------------------------------------------------
+        async function selectRecordingFolder() {
+            try {
+                if ('showDirectoryPicker' in window) {
+                    state.folderHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
+                    document.getElementById('folder-status-text').innerHTML =
+                        `<span class="text-emerald-400 font-semibold">Folder Ready:</span> ${state.folderHandle.name} (Auto-saves 720p)`;
+                    document.getElementById('btn-select-folder').innerHTML =
+                        `<i data-lucide="check-circle-2" class="w-3.5 h-3.5 text-emerald-400"></i> ${state.folderHandle.name}`;
+                    lucide.createIcons();
+                    showToast(`Recording folder "${state.folderHandle.name}" linked!`, 'success');
+                } else {
+                    showToast('Browser will auto-download 720p video file to your default Downloads folder.', 'info');
+                }
+            } catch (err) {
+                if (err.name !== 'AbortError') {
+                    showToast('Folder access restricted in preview frame; auto-download fallback enabled.', 'warning');
+                }
+            }
+        }
+
+        function toggleRecording() {
+            if (state.isRecording) {
+                stop720pRecording();
+            } else {
+                start720pRecording();
+            }
+        }
+
+        function start720pRecording() {
+            if (state.isRecording) return;
+
+            try {
+                // Create a 720p (1280x720) Composite Canvas combining Whiteboard + Teacher/Student Videos
+                const compCanvas = document.createElement('canvas');
+                compCanvas.width = 1280;
+                compCanvas.height = 720;
+                const compCtx = compCanvas.getContext('2d');
+
+                const localVid = document.getElementById('local-video');
+                const remoteVid = document.getElementById('remote-video');
+
+                // Render loop for 720p composite recording
+                state.compRenderActive = true;
+                function renderCompositeFrame() {
+                    if (!state.compRenderActive) return;
+
+                    // Background
+                    compCtx.fillStyle = state.theme === 'light' ? '#f8fafc' : '#0f172a';
+                    compCtx.fillRect(0, 0, 1280, 720);
+
+                    // Draw Whiteboard on Left (960x720)
+                    if (wbCanvas && wbCanvas.width > 0) {
+                        compCtx.drawImage(wbCanvas, 0, 0, 960, 720);
+                    }
+
+                    // Draw Sidebar Background (320x720)
+                    compCtx.fillStyle = state.theme === 'light' ? '#e2e8f0' : '#020617';
+                    compCtx.fillRect(960, 0, 320, 720);
+
+                    // Draw Local Video Top-Right (300x180)
+                    if (localVid && localVid.readyState >= 2) {
+                        compCtx.drawImage(localVid, 970, 20, 300, 180);
+                    }
+
+                    // Draw Remote Video Middle-Right (300x180)
+                    if (remoteVid && !remoteVid.classList.contains('hidden') && remoteVid.readyState >= 2) {
+                        compCtx.drawImage(remoteVid, 970, 220, 300, 180);
+                    }
+
+                    // Watermark Timestamp
+                    compCtx.fillStyle = '#94a3b8';
+                    compCtx.font = '14px Inter, sans-serif';
+                    compCtx.fillText(`NexusLearn 720p • Room: ${state.roomId} • ${new Date().toLocaleTimeString()}`, 970, 690);
+
+                    requestAnimationFrame(renderCompositeFrame);
+                }
+                renderCompositeFrame();
+
+                const canvasStream = compCanvas.captureStream(30);
+
+                // Mix Audio Tracks (Local Mic + Remote Audio if available)
+                const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                const dest = audioCtx.createMediaStreamDestination();
+                if (state.localStream && state.localStream.getAudioTracks().length > 0) {
+                    const src1 = audioCtx.createMediaStreamSource(state.localStream);
+                    src1.connect(dest);
+                }
+                if (state.remoteStream && state.remoteStream.getAudioTracks().length > 0) {
+                    const src2 = audioCtx.createMediaStreamSource(state.remoteStream);
+                    src2.connect(dest);
+                }
+                dest.stream.getAudioTracks().forEach(track => canvasStream.addTrack(track));
+
+                // Prefer MP4/H.264 if supported by browser, fallback to WebM
+                const mimeTypes = [
+                    'video/mp4;codecs=avc1,mp4a.40.2',
+                    'video/mp4',
+                    'video/webm;codecs=vp9,opus',
+                    'video/webm'
+                ];
+                const selectedMime = mimeTypes.find(m => MediaRecorder.isTypeSupported(m)) || '';
+
+                state.recordedChunks = [];
+                state.mediaRecorder = new MediaRecorder(canvasStream, {
+                    mimeType: selectedMime,
+                    videoBitsPerSecond: 2500000 // 2.5 Mbps crisp 720p
+                });
+
+                state.mediaRecorder.ondataavailable = (e) => {
+                    if (e.data && e.data.size > 0) {
+                        state.recordedChunks.push(e.data);
+                    }
+                };
+
+                state.mediaRecorder.onstop = async () => {
+                    state.compRenderActive = false;
+                    const blob = new Blob(state.recordedChunks, { type: selectedMime || 'video/mp4' });
+                    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+                    const fileName = `NexusLearn_${state.roomId}_720p_${timestamp}.mp4`;
+
+                    await saveRecordingToDisk(blob, fileName);
+                };
+
+                state.mediaRecorder.start(1000);
+                state.isRecording = true;
+                state.recStartTime = Date.now();
+
+                // Update UI
+                document.getElementById('rec-indicator').classList.remove('hidden');
+                document.getElementById('rec-indicator').classList.add('flex');
+                document.getElementById('label-record').textContent = 'Stop Rec';
+                document.getElementById('btn-record').classList.add('border-rose-500', 'bg-rose-950/40');
+
+                state.recInterval = setInterval(() => {
+                    const elapsed = Math.floor((Date.now() - state.recStartTime) / 1000);
+                    const mins = String(Math.floor(elapsed / 60)).padStart(2, '0');
+                    const secs = String(elapsed % 60).padStart(2, '0');
+                    document.getElementById('rec-timer').textContent = `${mins}:${secs}`;
+                }, 1000);
+
+                showToast('720p Auto-Recording started!', 'info');
+            } catch (err) {
+                console.error('Recording error:', err);
+                showToast('Unable to start 720p recorder: ' + err.message, 'error');
+            }
+        }
+
+        function stop720pRecording() {
+            if (!state.isRecording || !state.mediaRecorder) return;
+            state.mediaRecorder.stop();
+            state.isRecording = false;
+            clearInterval(state.recInterval);
+
+            document.getElementById('rec-indicator').classList.add('hidden');
+            document.getElementById('rec-indicator').classList.remove('flex');
+            document.getElementById('label-record').textContent = 'Start 720p Rec';
+            document.getElementById('btn-record').classList.remove('border-rose-500', 'bg-rose-950/40');
+        }
+
+        async function saveRecordingToDisk(blob, fileName) {
+            try {
+                if (state.folderHandle) {
+                    const fileHandle = await state.folderHandle.getFileHandle(fileName, { create: true });
+                    const writable = await fileHandle.createWritable();
+                    await writable.write(blob);
+                    await writable.close();
+                    showToast(`Saved 720p recording to "${state.folderHandle.name}/${fileName}"`, 'success');
+                    return;
+                }
+            } catch (err) {
+                console.warn('Direct folder write failed, falling back to browser download:', err);
+            }
+
+            // Standard download fallback
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.style.display = 'none';
+            a.href = url;
+            a.download = fileName;
+            document.body.appendChild(a);
+            a.click();
+            setTimeout(() => {
+                URL.revokeObjectURL(url);
+                a.remove();
+            }, 1000);
+            showToast(`720p recording saved as ${fileName}`, 'success');
+        }
+
+        // ---------------------------------------------------------------------
+        // 7. ENTERING CLASSROOM & SKYMEET-GRADE WEBRTC ENGINE
+        // ---------------------------------------------------------------------
+        const PEER_PREFIX = 'nexuslearn-sky-';
+        const PEER_OPTIONS = {
+            debug: 1,
+            config: {
+                iceServers: [
+                    { urls: 'stun:stun.l.google.com:19302' },
+                    { urls: 'stun:stun1.l.google.com:19302' },
+                    { urls: 'stun:global.stun.twilio.com:3478' },
+                    {
+                        urls: 'turn:openrelay.metered.ca:80',
+                        username: 'openrelayproject',
+                        credential: 'openrelayproject'
+                    },
+                    {
+                        urls: 'turn:openrelay.metered.ca:443',
+                        username: 'openrelayproject',
+                        credential: 'openrelayproject'
+                    },
+                    {
+                        urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+                        username: 'openrelayproject',
+                        credential: 'openrelayproject'
+                    }
+                ],
+                iceCandidatePoolSize: 4
+            }
+        };
+
+        let dummyAudioTrack = null;
+        let dummyVideoTrack = null;
+
+        function getHostPeerId(roomId) {
+            const cleanRoom = roomId.toLowerCase().replace(/[^a-z0-9_-]/g, '-');
+            return `${PEER_PREFIX}${cleanRoom}`;
+        }
+
+        // Silent audio / black video stand-in tracks so WebRTC ALWAYS negotiates both audio & video lines cleanly
+        function createDummyTrack(kind) {
+            try {
+                if (kind === 'video') {
+                    const c = document.createElement('canvas');
+                    c.width = c.height = 16;
+                    c.getContext('2d').fillRect(0, 0, 16, 16);
+                    return c.captureStream(1).getVideoTracks()[0];
+                }
+                const ac = new (window.AudioContext || window.webkitAudioContext)();
+                const dest = ac.createMediaStreamDestination();
+                const gain = ac.createGain();
+                gain.gain.value = 0;
+                const osc = ac.createOscillator();
+                osc.connect(gain);
+                gain.connect(dest);
+                osc.start();
+                return dest.stream.getAudioTracks()[0];
+            } catch (e) {
+                return null;
+            }
+        }
+
+        function getOutgoingVideoTrack() {
+            if (state.isSharingScreen && state.screenStream) {
+                return state.screenStream.getVideoTracks()[0];
+            }
+            if (state.localStream && state.localStream.getVideoTracks().length > 0) {
+                return state.localStream.getVideoTracks()[0];
+            }
+            return (dummyVideoTrack = dummyVideoTrack || createDummyTrack('video'));
+        }
+
+        function buildOutgoingStream() {
+            const stream = new MediaStream();
+            const audioTrack = (state.localStream && state.localStream.getAudioTracks()[0]) ||
+                (dummyAudioTrack = dummyAudioTrack || createDummyTrack('audio'));
+            const videoTrack = getOutgoingVideoTrack();
+            if (audioTrack) stream.addTrack(audioTrack);
+            if (videoTrack) stream.addTrack(videoTrack);
+            return stream;
+        }
+
+        function sendRoomMessage(payload) {
+            const enriched = {
+                ...payload,
+                _senderId: state.clientId || (state.clientId = Math.random().toString(36).slice(2)),
+                _roomId: state.roomId,
+                _ts: Date.now()
+            };
+            if (state.dataConn && state.dataConn.open) {
+                try { state.dataConn.send(enriched); } catch (e) {}
+            }
+            if (state.signalingChannel) {
+                try { state.signalingChannel.postMessage(enriched); } catch (e) {}
+            }
+            try {
+                localStorage.setItem(`nexuslearn_bus_${state.roomId}`, JSON.stringify(enriched));
+            } catch (e) {}
+        }
+
+        function attachRemoteMediaStream(stream, remoteName) {
+            if (!stream) return;
+            state.remoteStream = stream;
+            state.peerConnected = true;
+
+            const remoteVid = document.getElementById('remote-video');
+            remoteVid.srcObject = stream;
+            remoteVid.muted = false;
+            remoteVid.volume = 1.0;
+            remoteVid.classList.remove('hidden');
+
+            const playPromise = remoteVid.play();
+            if (playPromise !== undefined) {
+                playPromise.then(() => {
+                    document.getElementById('btn-unmute-remote').classList.add('hidden');
+                }).catch(() => {
+                    remoteVid.muted = true;
+                    remoteVid.play().catch(() => {});
+                    document.getElementById('btn-unmute-remote').classList.remove('hidden');
+                });
+            }
+
+            document.getElementById('remote-placeholder').classList.add('hidden');
+            document.getElementById('remote-name-badge').classList.remove('hidden');
+            document.getElementById('peer-count-badge').textContent = '2 Online';
+            if (remoteName) {
+                document.getElementById('remote-name-tag').textContent = remoteName;
+                document.getElementById('remote-avatar-initials').textContent = remoteName.slice(0, 2).toUpperCase();
+            }
+        }
+
+        function unlockRemoteAudio() {
+            const remoteVid = document.getElementById('remote-video');
+            if (remoteVid) {
+                remoteVid.muted = false;
+                remoteVid.volume = 1.0;
+                remoteVid.play().catch(() => {});
+            }
+            document.getElementById('btn-unmute-remote').classList.add('hidden');
+            showToast('Participant audio enabled!', 'success');
+        }
+
+        function attachDataChannel(conn) {
+            if (!conn) return;
+            state.dataConn = conn;
+            const sendState = () => {
+                try {
+                    conn.send({
+                        type: 'media-state',
+                        sender: state.userName,
+                        role: state.role,
+                        mic: state.isMicOn,
+                        cam: state.isCamOn
+                    });
+                } catch (e) {}
+                if (state.role === 'teacher') {
+                    syncPasscodesToPeers();
+                }
+            };
+
+            if (conn.open) sendState();
+            else conn.on('open', sendState);
+
+            conn.on('data', (msg) => handleIncomingRoomEvent(msg));
+
+            conn.on('close', () => {
+                if (state.dataConn === conn) {
+                    state.peerConnected = false;
+                    state.dataConn = null;
+                    state.mediaCall = null;
+                    state.remoteStream = null;
+                    document.getElementById('remote-status-text').textContent = 'Participant left the room';
+                    document.getElementById('peer-count-badge').textContent = '1 Online';
+                    document.getElementById('remote-video').classList.add('hidden');
+                    document.getElementById('remote-cam-off').classList.add('hidden');
+                    document.getElementById('remote-placeholder').classList.remove('hidden');
+                    document.getElementById('remote-name-badge').classList.add('hidden');
+                    showToast('Participant left the classroom.', 'warning');
+                }
+            });
+            conn.on('error', () => {});
+        }
+
+        function attachMediaCall(call, remoteName) {
+            state.mediaCall = call;
+            call.on('stream', (remoteStream) => {
+                attachRemoteMediaStream(remoteStream, remoteName);
+            });
+            call.on('close', () => {
+                if (state.mediaCall === call) {
+                    state.mediaCall = null;
+                }
+            });
+            call.on('error', () => {});
+        }
+
+        function handleIncomingRoomEvent(msg) {
+            if (!msg || typeof msg !== 'object') return;
+            if (msg._senderId && msg._senderId === state.clientId) return;
+            if (!msg._senderId && msg.sender === state.userName && msg.role === state.role) return;
+
+            switch (msg.type) {
+                case 'media-state':
+                    if (msg.sender) {
+                        document.getElementById('remote-name-tag').textContent = msg.sender;
+                        document.getElementById('remote-avatar-initials').textContent = msg.sender.slice(0, 2).toUpperCase();
+                    }
+                    document.getElementById('remote-cam-off').classList.toggle('hidden', msg.cam !== false);
+                    document.getElementById('remote-mic-dot').className = msg.mic !== false
+                        ? 'w-2 h-2 rounded-full bg-emerald-400'
+                        : 'w-2 h-2 rounded-full bg-rose-500';
+                    break;
+
+                case 'hello':
+                case 'join':
+                    if (!state.peerConnected) {
+                        state.peerConnected = true;
+                        showToast(`${msg.sender} (${msg.role}) joined your classroom!`, 'success');
+                        appendSystemChat(`${msg.sender} (${msg.role}) is now in the room with you.`);
+                    }
+                    document.getElementById('remote-status-text').textContent = `${msg.sender} connected`;
+                    document.getElementById('remote-name-tag').textContent = msg.sender;
+                    document.getElementById('remote-avatar-initials').textContent = msg.sender.slice(0, 2).toUpperCase();
+                    document.getElementById('peer-count-badge').textContent = '2 Online';
+
+                    // Teacher places the single clean WebRTC call to student if not already connected
+                    if (state.role === 'teacher' && msg.peerId && state.peerInstance && !state.mediaCall) {
+                        const call = state.peerInstance.call(msg.peerId, buildOutgoingStream(), {
+                            metadata: { name: state.userName }
+                        });
+                        if (call) attachMediaCall(call, msg.sender);
+                    }
+
+                    // Student updates live host peerId if teacher announced a fresh peerId after reload
+                    if (state.role === 'student' && msg.role === 'teacher' && msg.peerId) {
+                        state.liveHostPeerId = msg.peerId;
+                        if (typeof state.triggerStudentConnect === 'function') {
+                            state.triggerStudentConnect(true);
+                        }
+                    }
+
+                    if (msg.type !== 'hello-ack') {
+                        sendRoomMessage({
+                            type: 'hello-ack',
+                            sender: state.userName,
+                            role: state.role,
+                            peerId: state.peerInstance ? state.peerInstance.id : null
+                        });
+                    }
+                    if (state.role === 'teacher') {
+                        syncPasscodesToPeers();
+                    }
+                    break;
+
+                case 'hello-ack':
+                    if (!state.peerConnected) {
+                        state.peerConnected = true;
+                        showToast(`Connected with ${msg.sender}!`, 'success');
+                        appendSystemChat(`Connected to ${msg.sender}'s live classroom.`);
+                    }
+                    if (state.role === 'student' && msg.role === 'teacher' && msg.peerId) {
+                        state.liveHostPeerId = msg.peerId;
+                        if (typeof state.triggerStudentConnect === 'function') {
+                            state.triggerStudentConnect(true);
+                        }
+                    }
+                    document.getElementById('remote-status-text').textContent = `${msg.sender} connected`;
+                    document.getElementById('remote-name-tag').textContent = msg.sender;
+                    document.getElementById('remote-avatar-initials').textContent = msg.sender.slice(0, 2).toUpperCase();
+                    document.getElementById('peer-count-badge').textContent = '2 Online';
+                    break;
+
+                case 'chat':
+                    appendChatBubble(msg.sender, msg.text, false);
+                    break;
+
+                case 'wb-draw':
+                    drawRemoteAction(msg.action);
+                    break;
+
+                case 'wb-clear':
+                    clearWhiteboard(false);
+                    break;
+
+                case 'sync-keys':
+                    state.studentPasswords = msg.keys;
+                    persistStudentPasswords();
+                    renderStudentPasswords();
+                    break;
+
+                case 'verify-pass':
+                    if (state.role === 'teacher' && state.signalingChannel) {
+                        const isValid = state.studentPasswords.some(s => String(s.pass).trim() === String(msg.pass).trim());
+                        state.signalingChannel.postMessage({
+                            type: 'verify-pass-result',
+                            reqId: msg.reqId,
+                            valid: isValid,
+                            keys: state.studentPasswords
+                        });
+                    }
+                    break;
+            }
+        }
+
+        function verifyPasscodeWithLiveHost(roomId, passInput) {
+            return new Promise((resolve) => {
+                const localMatch = state.studentPasswords.find(s => String(s.pass).trim() === passInput);
+                if (localMatch) {
+                    resolve({ valid: true, student: localMatch });
+                    return;
+                }
+
+                try {
+                    const stored = JSON.parse(localStorage.getItem(`nexuslearn_keys_${roomId}`) || '[]');
+                    const storedMatch = stored.find(s => String(s.pass).trim() === passInput);
+                    if (storedMatch) {
+                        state.studentPasswords = stored;
+                        resolve({ valid: true, student: storedMatch });
+                        return;
+                    }
+                } catch (e) {}
+
+                const tempChannel = new BroadcastChannel(`nexuslearn_room_${roomId}`);
+                const reqId = Date.now() + '_' + Math.random();
+                const timeout = setTimeout(() => {
+                    tempChannel.close();
+                    resolve({ valid: false });
+                }, 600);
+
+                tempChannel.onmessage = (event) => {
+                    const msg = event.data;
+                    if (msg && msg.type === 'verify-pass-result' && msg.reqId === reqId) {
+                        clearTimeout(timeout);
+                        tempChannel.close();
+                        if (msg.keys) state.studentPasswords = msg.keys;
+                        resolve({ valid: msg.valid });
+                    }
+                };
+
+                tempChannel.postMessage({
+                    type: 'verify-pass',
+                    reqId,
+                    pass: passInput
+                });
+            });
+        }
+
+        async function enterClassroom() {
+            const nameInput = document.getElementById('input-name').value.trim();
+            const roomInput = (document.getElementById('input-room').value.trim() || 'math-101-studio').toLowerCase();
+
+            if (!nameInput) {
+                showToast('Please enter your display name first.', 'warning');
+                return;
+            }
+
+            if (state.role === 'teacher') {
+                persistStudentPasswords();
+            }
+
+            if (state.role === 'student') {
+                const passInput = document.getElementById('input-student-password').value.trim();
+                if (!passInput) {
+                    showToast('Please enter your student passcode.', 'warning');
+                    return;
+                }
+                const verification = await verifyPasscodeWithLiveHost(roomInput, passInput);
+                if (!verification.valid) {
+                    showToast('Invalid student passcode. Check with your teacher or re-copy the latest invite link.', 'error');
+                    return;
+                }
+            }
+
+            state.userName = nameInput;
+            state.roomId = roomInput;
+
+            // Update Header & UI Labels
+            document.getElementById('header-room-name').textContent = state.roomId;
+            document.getElementById('header-role-badge').textContent = state.role === 'teacher' ? 'Teacher / Host' : 'Student';
+            document.getElementById('local-name-tag').textContent = `${state.userName} (You)`;
+            document.getElementById('local-avatar-initials').textContent = state.userName.slice(0, 2).toUpperCase();
+
+            if (state.role === 'student') {
+                document.getElementById('btn-manage-keys').classList.add('hidden');
+                document.getElementById('btn-record').classList.add('hidden');
+            } else {
+                document.getElementById('btn-manage-keys').classList.remove('hidden');
+                document.getElementById('btn-record').classList.remove('hidden');
+            }
+
+            // Transition Screens
+            document.getElementById('lobby-screen').classList.add('hidden');
+            document.getElementById('classroom-screen').classList.remove('hidden');
+
+            // Persist active session so reloading keeps user directly inside the classroom
+            try {
+                sessionStorage.setItem('nexuslearn_active_session', JSON.stringify({
+                    userName: state.userName,
+                    roomId: state.roomId,
+                    role: state.role,
+                    pass: state.role === 'student' ? document.getElementById('input-student-password').value.trim() : ''
+                }));
+            } catch (e) {}
+
+            // Initialize Canvas, Camera/Mic, WebRTC Signaling, and Auto-Recording
+            initWhiteboard();
+            await initLocalMedia();
+            initWebRTCSignaling();
+
+            if (state.role === 'teacher' && document.getElementById('toggle-autorecord').checked) {
+                setTimeout(() => start720pRecording(), 800);
+            }
+        }
+
+        async function initLocalMedia() {
+            // SkyMeet cascading fallback: HD Video+Audio -> Audio only -> Video only -> Dummy stream
+            const attempts = [
+                {
+                    video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
+                    audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+                },
+                { audio: true },
+                { video: true }
+            ];
+            for (const constraints of attempts) {
+                try {
+                    state.localStream = await navigator.mediaDevices.getUserMedia(constraints);
+                    break;
+                } catch (e) {}
+            }
+            if (!state.localStream) {
+                state.localStream = new MediaStream();
+            }
+
+            state.isMicOn = state.localStream.getAudioTracks().length > 0;
+            state.isCamOn = state.localStream.getVideoTracks().length > 0;
+
+            const localVid = document.getElementById('local-video');
+            localVid.srcObject = state.localStream;
+
+            if (!state.isCamOn) {
+                localVid.classList.add('hidden');
+                document.getElementById('local-video-fallback').classList.remove('hidden');
+                showToast('Camera locked or unavailable — audio, chat & whiteboard are active.', 'warning');
+            }
+            syncOutgoingTracks();
+        }
+
+        function syncOutgoingTracks() {
+            if (!state.mediaCall || !state.mediaCall.peerConnection) return;
+            const pc = state.mediaCall.peerConnection;
+            const audioTrack = (state.localStream && state.localStream.getAudioTracks()[0]) ||
+                (dummyAudioTrack = dummyAudioTrack || createDummyTrack('audio'));
+            const videoTrack = getOutgoingVideoTrack();
+
+            pc.getSenders().forEach(sender => {
+                if (sender.track && sender.track.kind === 'audio' && audioTrack && sender.track !== audioTrack) {
+                    sender.replaceTrack(audioTrack).catch(() => {});
+                }
+                if (sender.track && sender.track.kind === 'video' && videoTrack && sender.track !== videoTrack) {
+                    sender.replaceTrack(videoTrack).catch(() => {});
+                }
+            });
+        }
+
+        function initWebRTCSignaling() {
+            state.clientId = Math.random().toString(36).slice(2);
+            state.peerConnected = false;
+            state.dataConn = null;
+            state.mediaCall = null;
+            state.roomId = state.roomId.trim().toLowerCase();
+            document.getElementById('header-room-name').textContent = state.roomId;
+
+            // Local BroadcastChannel + storage bus for same-browser tabs
+            state.signalingChannel = new BroadcastChannel(`nexuslearn_room_${state.roomId}`);
+            state.signalingChannel.onmessage = (event) => handleIncomingRoomEvent(event.data);
+
+            state.storageListener = (e) => {
+                if (e.key === `nexuslearn_bus_${state.roomId}` && e.newValue) {
+                    try { handleIncomingRoomEvent(JSON.parse(e.newValue)); } catch (err) {}
+                }
+            };
+            window.addEventListener('storage', state.storageListener);
+
+            const hostPeerId = getHostPeerId(state.roomId);
+            state.liveHostPeerId = hostPeerId;
+            let connectStudentToHost = () => {};
+            state.triggerStudentConnect = (forceReset) => connectStudentToHost(forceReset);
+
+            if (typeof Peer !== 'undefined') {
+                if (state.role === 'teacher') {
+                    // SkyMeet Host Pattern: Teacher claims deterministic room Peer ID & initiates media call upon student handshake
+                    const bindTeacherPeerHandlers = (peer) => {
+                        peer.on('open', () => {
+                            document.getElementById('peer-count-badge').textContent = '1 Online (Room Ready)';
+                            document.getElementById('remote-status-text').textContent = 'Room live — waiting for student...';
+                            sendRoomMessage({ type: 'join', sender: state.userName, role: 'teacher', peerId: peer.id });
+                        });
+
+                        peer.on('connection', (conn) => {
+                            const md = conn.metadata || {};
+                            const onOpen = () => {
+                                const studentName = md.name || 'Student';
+                                state.peerConnected = true;
+                                document.getElementById('remote-status-text').textContent = `${studentName} connected`;
+                                document.getElementById('remote-name-tag').textContent = studentName;
+                                document.getElementById('remote-avatar-initials').textContent = studentName.slice(0, 2).toUpperCase();
+                                document.getElementById('remote-cam-off').classList.toggle('hidden', md.cam !== false);
+                                document.getElementById('peer-count-badge').textContent = '2 Online';
+
+                                conn.send({
+                                    type: 'welcome',
+                                    hostName: state.userName,
+                                    mic: state.isMicOn,
+                                    cam: state.isCamOn
+                                });
+
+                                attachDataChannel(conn);
+
+                                // Host initiates the single clean WebRTC call with full audio+video tracks
+                                const call = peer.call(conn.peer, buildOutgoingStream(), {
+                                    metadata: { name: state.userName }
+                                });
+                                if (call) {
+                                    attachMediaCall(call, studentName);
+                                    setTimeout(syncOutgoingTracks, 500);
+                                }
+                                showToast(`${studentName} joined your classroom!`, 'success');
+                                appendSystemChat(`${studentName} entered the classroom.`);
+                            };
+                            if (conn.open) onOpen();
+                            else conn.on('open', onOpen);
+                        });
+
+                        // Fallback only if student placed a call and teacher hasn't called yet
+                        peer.on('call', (call) => {
+                            if (state.mediaCall && state.mediaCall.open) {
+                                call.close();
+                                return;
+                            }
+                            const callerName = (call.metadata && call.metadata.name) || 'Student';
+                            call.answer(buildOutgoingStream());
+                            attachMediaCall(call, callerName);
+                            setTimeout(syncOutgoingTracks, 500);
+                        });
+
+                        peer.on('disconnected', () => {
+                            if (state.peerInstance === peer && !peer.destroyed) {
+                                setTimeout(() => { try { peer.reconnect(); } catch (e) {} }, 1500);
+                            }
+                        });
+                    };
+
+                    const peer = new Peer(hostPeerId, PEER_OPTIONS);
+                    state.peerInstance = peer;
+                    bindTeacherPeerHandlers(peer);
+
+                    peer.on('error', (err) => {
+                        if (err.type === 'unavailable-id') {
+                            // If old host ID hasn't timed out from a reload yet, spin up an instant active peer and bind full handlers
+                            const fallbackPeer = new Peer(PEER_OPTIONS);
+                            state.peerInstance = fallbackPeer;
+                            bindTeacherPeerHandlers(fallbackPeer);
+                        }
+                    });
+                } else {
+                    // SkyMeet Guest Pattern: Student connects data channel + answers Host's incoming media call cleanly
+                    const peer = new Peer(PEER_OPTIONS);
+                    state.peerInstance = peer;
+                    let isDialing = false;
+
+                    connectStudentToHost = (forceReset = false) => {
+                        if (!state.peerInstance || state.peerInstance.destroyed || !state.peerInstance.open) return;
+                        if (!forceReset && state.dataConn && state.dataConn.open && state.remoteStream) return;
+                        if (!forceReset && isDialing) return;
+
+                        if (forceReset && state.dataConn) {
+                            try { state.dataConn.close(); } catch (e) {}
+                            state.dataConn = null;
+                        }
+
+                        isDialing = true;
+                        const targetHostId = state.liveHostPeerId || hostPeerId;
+                        const conn = peer.connect(targetHostId, {
+                            metadata: {
+                                join: true,
+                                name: state.userName,
+                                mic: state.isMicOn,
+                                cam: state.isCamOn
+                            },
+                            reliable: true
+                        });
+                        state.dataConn = conn;
+
+                        const dialTimeout = setTimeout(() => {
+                            isDialing = false;
+                            if (state.dataConn === conn && !conn.open) {
+                                try { conn.close(); } catch (e) {}
+                                state.dataConn = null;
+                            }
+                        }, 4500);
+
+                        conn.on('open', () => {
+                            clearTimeout(dialTimeout);
+                            isDialing = false;
+                        });
+
+                        conn.on('data', (m) => {
+                            if (m && m.type === 'welcome') {
+                                clearTimeout(dialTimeout);
+                                isDialing = false;
+                                const hostName = m.hostName || 'Teacher';
+                                state.peerConnected = true;
+                                document.getElementById('remote-status-text').textContent = `${hostName} connected`;
+                                document.getElementById('remote-name-tag').textContent = hostName;
+                                document.getElementById('remote-avatar-initials').textContent = hostName.slice(0, 2).toUpperCase();
+                                document.getElementById('remote-cam-off').classList.toggle('hidden', m.cam !== false);
+                                document.getElementById('peer-count-badge').textContent = '2 Online';
+                                attachDataChannel(conn);
+                                showToast(`Connected to ${hostName}'s classroom!`, 'success');
+                                appendSystemChat(`Joined ${hostName}'s live session.`);
+                            } else {
+                                handleIncomingRoomEvent(m);
+                            }
+                        });
+
+                        conn.on('error', () => {
+                            clearTimeout(dialTimeout);
+                            isDialing = false;
+                            if (state.dataConn === conn) state.dataConn = null;
+                        });
+                    };
+
+                    peer.on('open', () => {
+                        document.getElementById('remote-status-text').textContent = 'Connecting to teacher...';
+                        connectStudentToHost(true);
+                    });
+
+                    // Answer the Host's incoming media call cleanly (Single caller = zero glare)
+                    peer.on('call', (call) => {
+                        const hostName = (call.metadata && call.metadata.name) || 'Teacher';
+                        if (state.mediaCall && state.mediaCall !== call) {
+                            try { state.mediaCall.close(); } catch (e) {}
+                        }
+                        call.answer(buildOutgoingStream());
+                        attachMediaCall(call, hostName);
+                        setTimeout(syncOutgoingTracks, 500);
+                    });
+
+                    peer.on('disconnected', () => {
+                        if (state.peerInstance === peer && !peer.destroyed) {
+                            setTimeout(() => { try { peer.reconnect(); } catch (e) {} }, 1500);
+                        }
+                    });
+
+                    peer.on('error', (err) => {
+                        isDialing = false;
+                        if (err.type === 'peer-unavailable') {
+                            state.dataConn = null;
+                            state.mediaCall = null;
+                            // Reset back to canonical hostPeerId in case fallback ID expired
+                            state.liveHostPeerId = hostPeerId;
+                            document.getElementById('remote-status-text').textContent = 'Waiting for teacher to enter room...';
+                        }
+                    });
+                }
+            }
+
+            // Heartbeat every 2.5s until connected
+            state.presenceInterval = setInterval(() => {
+                if (!state.peerConnected || !state.remoteStream) {
+                    sendRoomMessage({
+                        type: 'join',
+                        sender: state.userName,
+                        role: state.role,
+                        peerId: state.peerInstance ? state.peerInstance.id : null
+                    });
+                    if (state.role === 'student') {
+                        connectStudentToHost(false);
+                    }
+                }
+            }, 2500);
+        }
+
+        function syncPasscodesToPeers() {
+            if (state.role === 'teacher') {
+                sendRoomMessage({
+                    type: 'sync-keys',
+                    sender: state.userName,
+                    keys: state.studentPasswords
+                });
+            }
+        }
+
+        // ---------------------------------------------------------------------
+        // 8. MEDIA CONTROLS (MIC, CAMERA, SCREEN SHARE, LEAVE)
+        // ---------------------------------------------------------------------
+        function toggleMic() {
+            if (!state.localStream || state.localStream.getAudioTracks().length === 0) {
+                showToast('No microphone detected.', 'warning');
+                return;
+            }
+            state.isMicOn = !state.isMicOn;
+            state.localStream.getAudioTracks().forEach(t => t.enabled = state.isMicOn);
+            const icon = document.getElementById('icon-mic');
+            const dot = document.getElementById('local-mic-dot');
+            icon.setAttribute('data-lucide', state.isMicOn ? 'mic' : 'mic-off');
+            icon.className = state.isMicOn ? 'w-4 h-4 text-emerald-400' : 'w-4 h-4 text-rose-400';
+            dot.className = state.isMicOn ? 'w-2 h-2 rounded-full bg-emerald-400' : 'w-2 h-2 rounded-full bg-rose-500';
+            lucide.createIcons();
+            sendRoomMessage({ type: 'media-state', sender: state.userName, role: state.role, mic: state.isMicOn, cam: state.isCamOn });
+        }
+
+        function toggleCamera() {
+            if (!state.localStream || state.localStream.getVideoTracks().length === 0) {
+                showToast('No camera detected.', 'warning');
+                return;
+            }
+            state.isCamOn = !state.isCamOn;
+            state.localStream.getVideoTracks().forEach(t => t.enabled = state.isCamOn);
+            const icon = document.getElementById('icon-cam');
+            icon.setAttribute('data-lucide', state.isCamOn ? 'video' : 'video-off');
+            icon.className = state.isCamOn ? 'w-4 h-4 text-emerald-400' : 'w-4 h-4 text-rose-400';
+            document.getElementById('local-video-fallback').classList.toggle('hidden', state.isCamOn);
+            document.getElementById('local-video').classList.toggle('hidden', !state.isCamOn);
+            lucide.createIcons();
+            sendRoomMessage({ type: 'media-state', sender: state.userName, role: state.role, mic: state.isMicOn, cam: state.isCamOn });
+        }
+
+        async function toggleScreenShare() {
+            try {
+                if (!state.isSharingScreen) {
+                    state.screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+                    const screenTrack = state.screenStream.getVideoTracks()[0];
+                    document.getElementById('local-video').srcObject = state.screenStream;
+                    document.getElementById('local-video').classList.remove('-scale-x-100');
+
+                    if (state.mediaCall && state.mediaCall.peerConnection) {
+                        const sender = state.mediaCall.peerConnection.getSenders().find(s => s.track && s.track.kind === 'video');
+                        if (sender) sender.replaceTrack(screenTrack);
+                    }
+
+                    screenTrack.onended = () => stopScreenShare();
+                    state.isSharingScreen = true;
+                    showToast('Screen sharing active', 'info');
+                } else {
+                    stopScreenShare();
+                }
+            } catch (err) {
+                showToast('Screen sharing cancelled.', 'info');
+            }
+        }
+
+        function stopScreenShare() {
+            if (state.screenStream) {
+                state.screenStream.getTracks().forEach(t => t.stop());
+            }
+            if (state.localStream) {
+                document.getElementById('local-video').srcObject = state.localStream;
+                document.getElementById('local-video').classList.add('-scale-x-100');
+                if (state.mediaCall && state.mediaCall.peerConnection) {
+                    const camTrack = state.localStream.getVideoTracks()[0];
+                    const sender = state.mediaCall.peerConnection.getSenders().find(s => s.track && s.track.kind === 'video');
+                    if (sender && camTrack) sender.replaceTrack(camTrack);
+                }
+            }
+            state.isSharingScreen = false;
+        }
+
+        function leaveClassroom() {
+            try { sessionStorage.removeItem('nexuslearn_active_session'); } catch (e) {}
+            stop720pRecording();
+            clearInterval(state.presenceInterval);
+            if (state.storageListener) window.removeEventListener('storage', state.storageListener);
+            if (state.localStream) state.localStream.getTracks().forEach(t => t.stop());
+            if (state.screenStream) state.screenStream.getTracks().forEach(t => t.stop());
+            if (state.mediaCall) state.mediaCall.close();
+            if (state.dataConn) state.dataConn.close();
+            if (state.peerInstance) state.peerInstance.destroy();
+            if (state.signalingChannel) state.signalingChannel.close();
+
+            document.getElementById('classroom-screen').classList.add('hidden');
+            document.getElementById('lobby-screen').classList.remove('hidden');
+            showToast('Session ended. Your classroom link remains active for future sessions.', 'info');
+        }
+
+        // ---------------------------------------------------------------------
+        // 9. LIVE CHAT SYSTEM
+        // ---------------------------------------------------------------------
+        function sendChatMessage(e) {
+            e.preventDefault();
+            const input = document.getElementById('chat-input');
+            const text = input.value.trim();
+            if (!text) return;
+
+            appendChatBubble(state.userName, text, true);
+            sendRoomMessage({
+                type: 'chat',
+                sender: state.userName,
+                text
+            });
+            input.value = '';
+        }
+
+        function appendChatBubble(sender, text, isSelf) {
+            const box = document.getElementById('chat-messages');
+            const div = document.createElement('div');
+            div.className = `flex flex-col ${isSelf ? 'items-end' : 'items-start'}`;
+            div.innerHTML = `
+                <span class="text-[10px] text-slate-400 mb-0.5 px-1">${isSelf ? 'You' : sender}</span>
+                <div class="px-3 py-2 rounded-2xl max-w-[85%] text-xs break-words ${isSelf ? 'bg-indigo-600 text-white rounded-br-sm' : 'bg-slate-800 text-slate-100 rounded-bl-sm'}">
+                    ${escapeHTML(text)}
+                </div>
+            `;
+            box.appendChild(div);
+            box.scrollTop = box.scrollHeight;
+        }
+
+        function appendSystemChat(text) {
+            const box = document.getElementById('chat-messages');
+            const div = document.createElement('div');
+            div.className = 'text-center text-[11px] text-slate-400 py-1';
+            div.textContent = text;
+            box.appendChild(div);
+            box.scrollTop = box.scrollHeight;
+        }
+
+        function escapeHTML(str) {
+            return str.replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
+        }
+
+        // ---------------------------------------------------------------------
+        // 10. COLLABORATIVE SHARED WHITEBOARD (TEACHER & STUDENT INTERACT TOGETHER)
+        // ---------------------------------------------------------------------
+        let wbCanvas, wbCtx;
+
+        function initWhiteboard() {
+            wbCanvas = document.getElementById('whiteboard-canvas');
+            wbCtx = wbCanvas.getContext('2d');
+            resizeWhiteboard();
+            window.addEventListener('resize', resizeWhiteboard);
+
+            // Pointer Events (Works seamlessly for Mouse, Touch, and Stylus)
+            wbCanvas.addEventListener('pointerdown', handlePointerDown);
+            wbCanvas.addEventListener('pointermove', handlePointerMove);
+            wbCanvas.addEventListener('pointerup', handlePointerUp);
+            wbCanvas.addEventListener('pointerleave', handlePointerUp);
+        }
+
+        function resizeWhiteboard() {
+            const wrapper = document.getElementById('canvas-wrapper');
+            if (!wrapper || !wbCanvas) return;
+            const tempImg = wbCanvas.width > 0 ? wbCtx.getImageData(0, 0, wbCanvas.width, wbCanvas.height) : null;
+            wbCanvas.width = wrapper.clientWidth;
+            wbCanvas.height = wrapper.clientHeight;
+            wbCtx.lineCap = 'round';
+            wbCtx.lineJoin = 'round';
+            if (tempImg) {
+                wbCtx.putImageData(tempImg, 0, 0);
+            }
+        }
+
+        function setTool(tool) {
+            state.tool = tool;
+            document.querySelectorAll('[id^="tool-"]').forEach(btn => {
+                btn.classList.remove('bg-indigo-600', 'text-white');
+                btn.classList.add('text-slate-300');
+            });
+            const activeBtn = document.getElementById(`tool-${tool}`);
+            if (activeBtn) {
+                activeBtn.classList.add('bg-indigo-600', 'text-white');
+                activeBtn.classList.remove('text-slate-300');
+            }
+        }
+
+        function setColor(hex) {
+            state.color = hex;
+            if (state.tool === 'eraser') setTool('pen');
+            document.querySelectorAll('.color-btn').forEach(btn => {
+                btn.classList.remove('border-2', 'border-indigo-400', 'scale-110');
+                btn.classList.add('border', 'border-slate-600');
+                if (btn.dataset.color.toLowerCase() === hex.toLowerCase()) {
+                    btn.classList.add('border-2', 'border-indigo-400', 'scale-110');
+                }
+            });
+        }
+
+        function setStrokeSize(val) {
+            state.strokeSize = parseInt(val, 10);
+        }
+
+        function getCanvasCoords(e) {
+            const rect = wbCanvas.getBoundingClientRect();
+            return {
+                x: e.clientX - rect.left,
+                y: e.clientY - rect.top
+            };
+        }
+
+        function handlePointerDown(e) {
+            const { x, y } = getCanvasCoords(e);
+
+            if (state.tool === 'text') {
+                createFloatingTextInput(x, y);
+                return;
+            }
+
+            state.isDrawing = true;
+            state.startX = x;
+            state.startY = y;
+            state.snapshotImageData = wbCtx.getImageData(0, 0, wbCanvas.width, wbCanvas.height);
+
+            if (state.tool === 'pen' || state.tool === 'highlighter' || state.tool === 'eraser') {
+                wbCtx.beginPath();
+                wbCtx.moveTo(x, y);
+            }
+        }
+
+        function handlePointerMove(e) {
+            if (!state.isDrawing) return;
+            const { x, y } = getCanvasCoords(e);
+
+            if (state.tool === 'pen' || state.tool === 'highlighter' || state.tool === 'eraser') {
+                const action = {
+                    tool: state.tool,
+                    color: state.color,
+                    size: state.strokeSize,
+                    x1: state.startX / wbCanvas.width,
+                    y1: state.startY / wbCanvas.height,
+                    x2: x / wbCanvas.width,
+                    y2: y / wbCanvas.height
+                };
+                renderActionOnCanvas(action);
+                broadcastBoardAction(action);
+                state.startX = x;
+                state.startY = y;
+            } else {
+                // Shape preview
+                wbCtx.putImageData(state.snapshotImageData, 0, 0);
+                renderActionOnCanvas({
+                    tool: state.tool,
+                    color: state.color,
+                    size: state.strokeSize,
+                    x1: state.startX / wbCanvas.width,
+                    y1: state.startY / wbCanvas.height,
+                    x2: x / wbCanvas.width,
+                    y2: y / wbCanvas.height
+                });
+            }
+        }
+
+        function handlePointerUp(e) {
+            if (!state.isDrawing) return;
+            state.isDrawing = false;
+
+            if (state.tool === 'line' || state.tool === 'rect' || state.tool === 'circle') {
+                const { x, y } = getCanvasCoords(e);
+                wbCtx.putImageData(state.snapshotImageData, 0, 0);
+                const action = {
+                    tool: state.tool,
+                    color: state.color,
+                    size: state.strokeSize,
+                    x1: state.startX / wbCanvas.width,
+                    y1: state.startY / wbCanvas.height,
+                    x2: x / wbCanvas.width,
+                    y2: y / wbCanvas.height
+                };
+                renderActionOnCanvas(action);
+                broadcastBoardAction(action);
+            }
+        }
+
+        function createFloatingTextInput(x, y) {
+            const wrapper = document.getElementById('canvas-wrapper');
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.placeholder = 'Type & press Enter...';
+            input.style.position = 'absolute';
+            input.style.left = `${x}px`;
+            input.style.top = `${y}px`;
+            input.style.color = state.color;
+            input.className = 'bg-slate-900/90 border border-indigo-500 rounded px-2 py-1 text-sm font-sans focus:outline-none z-20';
+            wrapper.appendChild(input);
+            input.focus();
+
+            const commitText = () => {
+                const val = input.value.trim();
+                if (val) {
+                    const action = {
+                        tool: 'text',
+                        color: state.color,
+                        size: state.strokeSize,
+                        x1: x / wbCanvas.width,
+                        y1: (y + 16) / wbCanvas.height,
+                        text: val
+                    };
+                    renderActionOnCanvas(action);
+                    broadcastBoardAction(action);
+                }
+                input.remove();
+            };
+
+            input.addEventListener('keydown', (ev) => {
+                if (ev.key === 'Enter') commitText();
+                if (ev.key === 'Escape') input.remove();
+            });
+            input.addEventListener('blur', commitText);
+        }
+
+        function renderActionOnCanvas(action) {
+            if (!wbCtx) return;
+            const x1 = action.x1 * wbCanvas.width;
+            const y1 = action.y1 * wbCanvas.height;
+            const x2 = (action.x2 || 0) * wbCanvas.width;
+            const y2 = (action.y2 || 0) * wbCanvas.height;
+
+            wbCtx.save();
+            wbCtx.lineCap = 'round';
+            wbCtx.lineJoin = 'round';
+
+            if (action.tool === 'eraser') {
+                wbCtx.globalCompositeOperation = 'destination-out';
+                wbCtx.lineWidth = action.size * 5;
+                wbCtx.beginPath();
+                wbCtx.moveTo(x1, y1);
+                wbCtx.lineTo(x2, y2);
+                wbCtx.stroke();
+            } else if (action.tool === 'highlighter') {
+                wbCtx.globalAlpha = 0.35;
+                wbCtx.strokeStyle = action.color;
+                wbCtx.lineWidth = action.size * 4;
+                wbCtx.beginPath();
+                wbCtx.moveTo(x1, y1);
+                wbCtx.lineTo(x2, y2);
+                wbCtx.stroke();
+            } else if (action.tool === 'pen') {
+                wbCtx.strokeStyle = action.color;
+                wbCtx.lineWidth = action.size;
+                wbCtx.beginPath();
+                wbCtx.moveTo(x1, y1);
+                wbCtx.lineTo(x2, y2);
+                wbCtx.stroke();
+            } else if (action.tool === 'line') {
+                wbCtx.strokeStyle = action.color;
+                wbCtx.lineWidth = action.size;
+                wbCtx.beginPath();
+                wbCtx.moveTo(x1, y1);
+                wbCtx.lineTo(x2, y2);
+                wbCtx.stroke();
+            } else if (action.tool === 'rect') {
+                wbCtx.strokeStyle = action.color;
+                wbCtx.lineWidth = action.size;
+                wbCtx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+            } else if (action.tool === 'circle') {
+                wbCtx.strokeStyle = action.color;
+                wbCtx.lineWidth = action.size;
+                const radius = Math.hypot(x2 - x1, y2 - y1);
+                wbCtx.beginPath();
+                wbCtx.arc(x1, y1, radius, 0, Math.PI * 2);
+                wbCtx.stroke();
+            } else if (action.tool === 'text') {
+                wbCtx.fillStyle = action.color;
+                wbCtx.font = `600 ${Math.max(16, action.size * 4)}px Inter, sans-serif`;
+                wbCtx.fillText(action.text, x1, y1);
+            }
+
+            wbCtx.restore();
+        }
+
+        function broadcastBoardAction(action) {
+            sendRoomMessage({
+                type: 'wb-draw',
+                sender: state.userName,
+                action
+            });
+        }
+
+        function drawRemoteAction(action) {
+            renderActionOnCanvas(action);
+        }
+
+        function clearWhiteboard(broadcast = false) {
+            if (!wbCtx) return;
+            wbCtx.clearRect(0, 0, wbCanvas.width, wbCanvas.height);
+            if (broadcast) {
+                sendRoomMessage({
+                    type: 'wb-clear',
+                    sender: state.userName
+                });
+            }
+        }
+
+        function downloadWhiteboard() {
+            const exportCanvas = document.createElement('canvas');
+            exportCanvas.width = wbCanvas.width;
+            exportCanvas.height = wbCanvas.height;
+            const ctx = exportCanvas.getContext('2d');
+            ctx.fillStyle = state.theme === 'light' ? '#ffffff' : '#0f172a';
+            ctx.fillRect(0, 0, exportCanvas.width, exportCanvas.height);
+            ctx.drawImage(wbCanvas, 0, 0);
+
+            const link = document.createElement('a');
+            link.download = `${state.roomId}_whiteboard.png`;
+            link.href = exportCanvas.toDataURL('image/png');
+            link.click();
+            showToast('Whiteboard snapshot saved!', 'success');
+        }
+
+        // ---------------------------------------------------------------------
+        // 11. BOOTSTRAP ON WINDOW LOAD & SESSION RELOAD RESUME
+        // ---------------------------------------------------------------------
+        window.addEventListener('beforeunload', () => {
+            try {
+                if (state.peerInstance && !state.peerInstance.destroyed) {
+                    state.peerInstance.destroy();
+                }
+            } catch (e) {}
+        });
+
+        window.onload = function () {
+            applyTheme(state.theme);
+            parseURLParams();
+            renderStudentPasswords();
+            initThreeScene();
+
+            // Auto-resume active classroom session on page reload
+            try {
+                const raw = sessionStorage.getItem('nexuslearn_active_session');
+                if (raw) {
+                    const saved = JSON.parse(raw);
+                    if (saved && saved.userName && saved.roomId) {
+                        switchRole(saved.role || 'teacher');
+                        document.getElementById('input-name').value = saved.userName;
+                        document.getElementById('input-room').value = saved.roomId;
+                        if (saved.role === 'student' && saved.pass) {
+                            document.getElementById('input-student-password').value = saved.pass;
+                        }
+                        enterClassroom();
+                    }
+                }
+            } catch (e) {}
+        };
+    </script>
+</body>
+</html>
