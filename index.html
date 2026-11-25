@@ -477,7 +477,7 @@
                         <i data-lucide="message-square" class="w-3.5 h-3.5 text-indigo-400"></i>
                         Live Session Chat
                     </span>
-                    <span class="text-[10px] text-emerald-400 font-mono" id="peer-count-badge">1 Online</span>
+                    <span class="text-[10px] text-emerald-400 font-mono" id="peer-count-badge">1 Online (Connecting...)</span>
                 </div>
 
                 <!-- Chat Messages Feed -->
@@ -568,6 +568,10 @@
             role: 'teacher', // 'teacher' | 'student'
             userName: '',
             roomId: 'math-101-studio',
+            clientId: '',
+            peerConnected: false,
+            presenceInterval: null,
+            storageListener: null,
             studentPasswords: [
                 { id: 1, name: 'Rohan', pass: '1010' },
                 { id: 2, name: 'Ananya', pass: '2020' }
@@ -616,7 +620,7 @@
 
             if (roomParam) {
                 document.getElementById('input-room').value = roomParam;
-                state.roomId = roomParam;
+                state.roomId = roomParam.trim().toLowerCase();
             }
 
             // Load persisted keys for this room from localStorage
@@ -648,7 +652,7 @@
         });
 
         function persistStudentPasswords() {
-            const roomVal = (document.getElementById('input-room')?.value.trim() || state.roomId || 'math-101-studio');
+            const roomVal = (document.getElementById('input-room')?.value.trim().toLowerCase() || state.roomId || 'math-101-studio');
             localStorage.setItem(`nexuslearn_keys_${roomVal}`, JSON.stringify(state.studentPasswords));
         }
 
@@ -1004,7 +1008,7 @@
         }
 
         function copyInviteLink() {
-            const roomVal = document.getElementById('input-room').value.trim() || 'math-101-studio';
+            const roomVal = document.getElementById('input-room').value.trim().toLowerCase() || 'math-101-studio';
             persistStudentPasswords();
             const url = new URL(window.location.href);
             url.searchParams.set('room', roomVal);
@@ -1244,12 +1248,22 @@
         }
 
         function sendRoomMessage(payload) {
+            const enriched = {
+                ...payload,
+                _senderId: state.clientId || (state.clientId = Math.random().toString(36).slice(2)),
+                _roomId: state.roomId,
+                _ts: Date.now()
+            };
             if (state.dataConn && state.dataConn.open) {
-                try { state.dataConn.send(payload); } catch (e) {}
+                try { state.dataConn.send(enriched); } catch (e) {}
             }
             if (state.signalingChannel) {
-                try { state.signalingChannel.postMessage(payload); } catch (e) {}
+                try { state.signalingChannel.postMessage(enriched); } catch (e) {}
             }
+            // Cross-window localStorage event relay (works even when BroadcastChannel/WebRTC is isolated)
+            try {
+                localStorage.setItem(`nexuslearn_bus_${state.roomId}`, JSON.stringify(enriched));
+            } catch (e) {}
         }
 
         function attachRemoteMediaStream(stream, remoteName) {
@@ -1258,6 +1272,7 @@
             const remoteVid = document.getElementById('remote-video');
             remoteVid.srcObject = stream;
             remoteVid.classList.remove('hidden');
+            remoteVid.play().catch(() => {});
             document.getElementById('remote-placeholder').classList.add('hidden');
             document.getElementById('remote-name-badge').classList.remove('hidden');
             if (remoteName) {
@@ -1268,11 +1283,13 @@
         function setupDataConnection(conn) {
             state.dataConn = conn;
             conn.on('open', () => {
-                conn.send({
+                const helloMsg = {
                     type: 'hello',
                     sender: state.userName,
-                    role: state.role
-                });
+                    role: state.role,
+                    peerId: state.peerInstance ? state.peerInstance.id : null
+                };
+                conn.send(helloMsg);
                 if (state.role === 'teacher') {
                     syncPasscodesToPeers();
                 }
@@ -1283,6 +1300,7 @@
             });
 
             conn.on('close', () => {
+                state.peerConnected = false;
                 document.getElementById('remote-status-text').textContent = 'Participant left the room';
                 document.getElementById('peer-count-badge').textContent = '1 Online';
                 document.getElementById('remote-video').classList.add('hidden');
@@ -1293,33 +1311,55 @@
         }
 
         function handleIncomingRoomEvent(msg) {
-            if (!msg || msg.sender === state.userName) return;
+            if (!msg) return;
+            if (msg._senderId && msg._senderId === state.clientId) return;
+            if (!msg._senderId && msg.sender === state.userName && msg.role === state.role) return;
 
             switch (msg.type) {
                 case 'hello':
                 case 'join':
-                    showToast(`${msg.sender} (${msg.role}) is in the classroom with you!`, 'success');
+                    if (!state.peerConnected) {
+                        state.peerConnected = true;
+                        showToast(`${msg.sender} (${msg.role}) joined your classroom!`, 'success');
+                        appendSystemChat(`${msg.sender} (${msg.role}) is now in the room with you.`);
+                    }
                     document.getElementById('remote-status-text').textContent = `${msg.sender} connected`;
                     document.getElementById('remote-name-tag').textContent = msg.sender;
                     document.getElementById('peer-count-badge').textContent = '2 Online';
-                    appendSystemChat(`${msg.sender} joined the live session.`);
+
+                    // Establish reverse WebRTC call if teacher receives student's peerId
+                    if (state.role === 'teacher' && msg.peerId && state.peerInstance && !state.mediaCall) {
+                        const streamForCall = state.localStream || createSilentDummyStream();
+                        const call = state.peerInstance.call(msg.peerId, streamForCall);
+                        if (call) {
+                            state.mediaCall = call;
+                            call.on('stream', (rs) => attachRemoteMediaStream(rs, msg.sender));
+                        }
+                    }
+
+                    // Always reply with hello-ack so both sides confirm connection
+                    if (msg.type !== 'hello-ack') {
+                        sendRoomMessage({
+                            type: 'hello-ack',
+                            sender: state.userName,
+                            role: state.role,
+                            peerId: state.peerInstance ? state.peerInstance.id : null
+                        });
+                    }
                     if (state.role === 'teacher') {
                         syncPasscodesToPeers();
-                        if (state.dataConn && state.dataConn.open && msg.type === 'hello') {
-                            state.dataConn.send({
-                                type: 'hello-ack',
-                                sender: state.userName,
-                                role: state.role
-                            });
-                        }
                     }
                     break;
 
                 case 'hello-ack':
+                    if (!state.peerConnected) {
+                        state.peerConnected = true;
+                        showToast(`Connected with ${msg.sender}!`, 'success');
+                        appendSystemChat(`Connected to ${msg.sender}'s live classroom.`);
+                    }
                     document.getElementById('remote-status-text').textContent = `${msg.sender} connected`;
                     document.getElementById('remote-name-tag').textContent = msg.sender;
                     document.getElementById('peer-count-badge').textContent = '2 Online';
-                    appendSystemChat(`Connected to ${msg.sender}'s classroom.`);
                     break;
 
                 case 'chat':
@@ -1399,7 +1439,7 @@
 
         async function enterClassroom() {
             const nameInput = document.getElementById('input-name').value.trim();
-            const roomInput = document.getElementById('input-room').value.trim() || 'math-101-studio';
+            const roomInput = (document.getElementById('input-room').value.trim() || 'math-101-studio').toLowerCase();
 
             if (!nameInput) {
                 showToast('Please enter your display name first.', 'warning');
@@ -1471,35 +1511,68 @@
         }
 
         function initWebRTCSignaling() {
-            // Same-device fast BroadcastChannel fallback
+            state.clientId = Math.random().toString(36).slice(2);
+            state.peerConnected = false;
+
+            // Normalize roomId so minor casing/whitespace differences still match
+            state.roomId = state.roomId.trim().toLowerCase();
+            document.getElementById('header-room-name').textContent = state.roomId;
+
+            // 1. Same-browser BroadcastChannel + localStorage Bus (Instant sync across tabs/windows)
             state.signalingChannel = new BroadcastChannel(`nexuslearn_room_${state.roomId}`);
             state.signalingChannel.onmessage = (event) => {
                 handleIncomingRoomEvent(event.data);
             };
 
+            state.storageListener = (e) => {
+                if (e.key === `nexuslearn_bus_${state.roomId}` && e.newValue) {
+                    try {
+                        handleIncomingRoomEvent(JSON.parse(e.newValue));
+                    } catch (err) {}
+                }
+            };
+            window.addEventListener('storage', state.storageListener);
+
+            // Announce presence immediately over local channels
+            sendRoomMessage({ type: 'join', sender: state.userName, role: state.role });
+
+            // Heartbeat every 2.5s until connected so late joiners sync immediately
+            state.presenceInterval = setInterval(() => {
+                if (!state.peerConnected) {
+                    sendRoomMessage({
+                        type: 'join',
+                        sender: state.userName,
+                        role: state.role,
+                        peerId: state.peerInstance ? state.peerInstance.id : null
+                    });
+                }
+            }, 2500);
+
+            // 2. Cross-Device PeerJS WebRTC Signaling
             const hostPeerId = getHostPeerId(state.roomId);
             const streamForCall = state.localStream || createSilentDummyStream();
 
             if (typeof Peer === 'undefined') {
-                state.signalingChannel.postMessage({ type: 'join', sender: state.userName, role: state.role });
                 return;
             }
 
             const peerConfig = {
+                debug: 1,
                 config: {
                     iceServers: [
                         { urls: 'stun:stun.l.google.com:19302' },
-                        { urls: 'stun:stun1.l.google.com:19302' }
+                        { urls: 'stun:stun1.l.google.com:19302' },
+                        { urls: 'stun:stun2.l.google.com:19302' }
                     ]
                 }
             };
 
             if (state.role === 'teacher') {
-                // Teacher claims the deterministic room Host ID so any student with the room link joins the exact same room
                 const peer = new Peer(hostPeerId, peerConfig);
                 state.peerInstance = peer;
 
                 peer.on('open', () => {
+                    document.getElementById('peer-count-badge').textContent = '1 Online (Room Ready)';
                     document.getElementById('remote-status-text').textContent = 'Room live — waiting for student...';
                 });
 
@@ -1518,26 +1591,41 @@
                 peer.on('error', (err) => {
                     console.warn('Teacher PeerJS notice:', err.type);
                     if (err.type === 'unavailable-id') {
-                        showToast('Another teacher tab is already hosting this room ID.', 'warning');
+                        // Fallback random Peer ID if previous session host ID hasn't timed out yet
+                        const fallbackPeer = new Peer(peerConfig);
+                        state.peerInstance = fallbackPeer;
+                        fallbackPeer.on('open', () => {
+                            sendRoomMessage({ type: 'join', sender: state.userName, role: state.role, peerId: fallbackPeer.id });
+                        });
+                        fallbackPeer.on('connection', (conn) => setupDataConnection(conn));
+                        fallbackPeer.on('call', (call) => {
+                            state.mediaCall = call;
+                            call.answer(streamForCall);
+                            call.on('stream', (rs) => attachRemoteMediaStream(rs));
+                        });
                     }
                 });
             } else {
-                // Student connects directly to the Teacher's deterministic room Host ID
                 const peer = new Peer(peerConfig);
                 state.peerInstance = peer;
 
-                peer.on('open', () => {
-                    document.getElementById('remote-status-text').textContent = 'Connecting to teacher...';
-                    const conn = peer.connect(hostPeerId, { reliable: true });
+                const connectToTeacherHost = () => {
+                    if (!state.peerInstance || state.peerInstance.destroyed) return;
+                    const conn = state.peerInstance.connect(hostPeerId, { reliable: true });
                     setupDataConnection(conn);
 
-                    const call = peer.call(hostPeerId, streamForCall);
-                    state.mediaCall = call;
+                    const call = state.peerInstance.call(hostPeerId, streamForCall);
                     if (call) {
+                        state.mediaCall = call;
                         call.on('stream', (remoteStream) => {
                             attachRemoteMediaStream(remoteStream);
                         });
                     }
+                };
+
+                peer.on('open', () => {
+                    document.getElementById('remote-status-text').textContent = 'Connecting to teacher...';
+                    connectToTeacherHost();
                 });
 
                 peer.on('connection', (conn) => {
@@ -1555,19 +1643,8 @@
                 peer.on('error', (err) => {
                     console.warn('Student PeerJS notice:', err.type);
                     if (err.type === 'peer-unavailable') {
-                        document.getElementById('remote-status-text').textContent = 'Waiting for teacher to start room...';
-                        showToast('Teacher has not entered this room yet — retrying automatically...', 'info');
-                        setTimeout(() => {
-                            if (state.peerInstance && !state.peerInstance.destroyed && (!state.dataConn || !state.dataConn.open)) {
-                                const retryConn = state.peerInstance.connect(hostPeerId, { reliable: true });
-                                setupDataConnection(retryConn);
-                                const retryCall = state.peerInstance.call(hostPeerId, streamForCall);
-                                if (retryCall) {
-                                    state.mediaCall = retryCall;
-                                    retryCall.on('stream', (rs) => attachRemoteMediaStream(rs));
-                                }
-                            }
-                        }, 3000);
+                        document.getElementById('remote-status-text').textContent = 'Waiting for teacher to enter room...';
+                        setTimeout(connectToTeacherHost, 2500);
                     }
                 });
             }
@@ -1650,6 +1727,8 @@
 
         function leaveClassroom() {
             stop720pRecording();
+            clearInterval(state.presenceInterval);
+            if (state.storageListener) window.removeEventListener('storage', state.storageListener);
             if (state.localStream) state.localStream.getTracks().forEach(t => t.stop());
             if (state.screenStream) state.screenStream.getTracks().forEach(t => t.stop());
             if (state.mediaCall) state.mediaCall.close();
